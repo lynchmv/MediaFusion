@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Ensure the script exits on failure
-set -e
+# set -e
 
 # Ensure the script is run from the correct directory
 cd "$(dirname "$0")"
@@ -10,11 +10,21 @@ cd "$(dirname "$0")"
 REPO_ROOT="$(pwd)/../.."
 
 # Generate PROWLARR_API_KEY and add to .env file
-PROWLARR_API_KEY=$(openssl rand -hex 16)
-echo "PROWLARR_API_KEY=$PROWLARR_API_KEY" >> .env
+grep PROWLARR_API_KEY .env >/dev/null
+if [ $? -ne 0 ]; then
+  PROWLARR_API_KEY=$(openssl rand -hex 16)
+  echo "PROWLARR_API_KEY=$PROWLARR_API_KEY" >> .env
+else
+  PROWLARR_API_KEY=$(grep PROWLARR_API_KEY .env |awk -F'=' '{print $2}')
+fi
 
 # Stop & delete Prowlarr container if it's running
-docker compose rm -sf prowlarr
+which docker-compose >/dev/null
+if [ $? -eq 0 ]; then
+  docker-compose rm -sf prowlarr
+else
+  docker compose rm -sf prowlarr
+fi
 
 # delete the volume if it exists
 docker volume rm -f docker-compose_prowlarr-config
@@ -37,10 +47,20 @@ docker run --rm -v "$REPO_ROOT/resources/xml/prowlarr-config.xml:/prowlarr-confi
 "
 
 # pull the latest images
-docker compose pull prowlarr flaresolverr
+which docker-compose >/dev/null
+if [ $? -eq 0 ]; then
+  docker-compose pull prowlarr flaresolverr
+else
+  docker compose pull prowlarr flaresolverr
+fi
 
 # Start Prowlarr and FlareSolverr containers
-docker compose up -d prowlarr flaresolverr
+which docker-compose >/dev/null
+if [ $? -eq 0 ]; then
+  docker-compose up -d prowlarr flaresolverr
+else
+  docker compose up -d prowlarr flaresolverr
+fi
 
 # Function to handle curl requests
 handle_curl() {
