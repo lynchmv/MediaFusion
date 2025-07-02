@@ -52,6 +52,18 @@ def setup_scheduler(scheduler: AsyncIOScheduler):
             },
         )
 
+    # Setup bc3 scraper
+    if not settings.disable_bc3_scheduler:
+        scheduler.add_job(
+            run_spider.send,
+            CronTrigger.from_crontab(settings.bc3_scheduler_crontab),
+            name="bc3",
+            kwargs={
+                "spider_name": "bc3",
+                "crontab_expression": settings.bc3_scheduler_crontab,
+            },
+        )
+
     # Setup nowmetv scraper
     if not settings.disable_nowmetv_scheduler:
         scheduler.add_job(

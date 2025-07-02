@@ -487,6 +487,9 @@ class LiveTVSpider(scrapy.Spider):
         return stream_info
 
 
+class Bc3Spider(LiveTVSpider):
+    name = "bc3"
+
 class NowMeTVSpider(LiveTVSpider):
     name = "nowmetv"
 

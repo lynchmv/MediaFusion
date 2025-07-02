@@ -147,6 +147,7 @@ Each scheduler has a crontab expression and disable flag:
 - **tamilmv_scheduler_crontab** (default: `"0 */3 * * *"`)
 - **tamil_blasters_scheduler_crontab** (default: `"0 */6 * * *"`)
 - **formula_tgx_scheduler_crontab** (default: `"*/30 * * * *"`)
+- **bc3_scheduler_crontab** (default: `"15 * * * *"`)
 - **nowmetv_scheduler_crontab** (default: `"0 0 * * *"`)
 - **nowsports_scheduler_crontab** (default: `"0 10 * * *"`)
 - **tamilultra_scheduler_crontab** (default: `"0 8 * * *"`)
