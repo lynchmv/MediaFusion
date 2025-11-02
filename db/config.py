@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     background_search_interval_hours: int = 72
     background_search_crontab: str = "*/3 * * * *"
 
+    # BC3TV Settings
+    bc3tv_source_name: str = "BC3TV Live TV"
+    bc3tv_playlist_url: str = "https://cutt.ly/2rn48Pvr"
+    combined_playlist_sources: str = Field("", alias="COMBINED_PLAYLIST_SOURCES")
+
     # Premiumize Settings
     premiumize_oauth_client_id: str | None = None
     premiumize_oauth_client_secret: str | None = None
@@ -118,6 +123,7 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = None
 
     # Configuration Sources
+    use_config_source: str = "remote"
     remote_config_source: str = (
         "https://raw.githubusercontent.com/mhdzumair/MediaFusion/main/resources/json/scraper_config.json"
     )
@@ -163,6 +169,8 @@ class Settings(BaseSettings):
     disable_validate_tv_streams_in_db: bool = False
     sport_video_scheduler_crontab: str = "*/20 * * * *"
     disable_sport_video_scheduler: bool = False
+    bc3tv_scheduler_crontab: str = "15 */2 * * *"
+    disable_bc3tv_scheduler: bool = False
     dlhd_scheduler_crontab: str = "0 0 * * 1"
     disable_dlhd_scheduler: bool = False
     motogp_tgx_scheduler_crontab: str = "0 5 * * *"

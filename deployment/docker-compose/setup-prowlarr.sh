@@ -10,8 +10,9 @@ cd "$(dirname "$0")"
 REPO_ROOT="$(pwd)/../.."
 
 # Generate PROWLARR_API_KEY and add to .env file
-PROWLARR_API_KEY=$(openssl rand -hex 16)
-echo "PROWLARR_API_KEY=$PROWLARR_API_KEY" >> .env
+# PROWLARR_API_KEY=$(openssl rand -hex 16)
+# echo "PROWLARR_API_KEY=$PROWLARR_API_KEY" >> .env
+PROWLARR_API_KEY=27e68cd5e7a41a5a2d0092a39e603e1a
 
 # Stop & delete Prowlarr container if it's running
 docker compose rm -sf prowlarr
@@ -32,7 +33,7 @@ docker run --rm -v "$REPO_ROOT/resources/xml/prowlarr-config.xml:/prowlarr-confi
   sed -i 's/\$PROWLARR__POSTGRES_HOST/'"$PROWLARR__POSTGRES_HOST"'/g' /config/config.xml;
   sed -i 's/\$PROWLARR__POSTGRES_MAIN_DB/'"$PROWLARR__POSTGRES_MAIN_DB"'/g' /config/config.xml;
   sed -i 's/\$PROWLARR__POSTGRES_LOG_DB/'"$PROWLARR__POSTGRES_LOG_DB"'/g' /config/config.xml;
-  chmod 664 /config/config.xml;
+  chmod 666 /config/config.xml;
   echo 'Prowlarr config setup complete.';
 "
 

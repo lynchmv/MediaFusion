@@ -18,27 +18,39 @@ from utils.parser import is_contain_18_plus_keywords
 from db.redis_database import REDIS_ASYNC_CLIENT
 from utils.validation_helper import validate_live_stream_url
 
-
 async def add_tv_metadata(batch, namespace: str):
-    for metadata_json in batch:
-        metadata = schemas.TVMetaData.model_validate(metadata_json)
-        if is_contain_18_plus_keywords(metadata.title) or any(
-            is_contain_18_plus_keywords(genre) for genre in metadata.genres
-        ):
-            logging.info(f"Skipping 18+ TV metadata: {metadata.title}")
-            return
+    """
+    Processes a batch of TV metadata, validating streams concurrently
+    with a semaphore to limit requests and avoid rate-limiting.
+    """
+    # Create a semaphore to limit concurrent network requests to 10
+    semaphore = asyncio.Semaphore(10)
 
-        logging.info(f"Adding TV metadata: {metadata.title}")
-        try:
-            metadata.streams = await validation_helper.validate_tv_metadata(metadata)
-        except validation_helper.ValidationError as e:
-            logging.error(f"Error validating TV metadata: {metadata.title}, {e}")
-            return
+    async def process_single_item(metadata_json):
+        """Helper function to process one item from the batch."""
+        # This will wait until a "slot" is available in the semaphore
+        async with semaphore:
+            try:
+                metadata = schemas.TVMetaData.model_validate(metadata_json)
 
-        metadata.namespace = namespace
-        channel_id = await crud.save_tv_channel_metadata(metadata)
-        logging.info(f"Added TV metadata: {metadata.title}, Channel ID: {channel_id}")
+                validated_streams = await validation_helper.validate_tv_metadata(metadata)
+                if not validated_streams:
+                    logging.warning(f"No valid streams found for {metadata.title}. Skipping.")
+                    return
 
+                metadata.streams = validated_streams
+                metadata.namespace = namespace
+                await crud.save_tv_channel_metadata(metadata)
+                logging.info(f"Successfully processed and saved TV metadata for: {metadata.title}")
+
+            except validation_helper.ValidationError as e:
+                # This error is now caught per-item, so it won't crash the whole batch
+                logging.error(f"Validation error for TV metadata: {getattr(metadata, 'title', 'N/A')}, {e}")
+            except Exception:
+                logging.exception(f"An unexpected error occurred processing metadata item.")
+
+    tasks = [process_single_item(metadata_json) for metadata_json in batch]
+    await asyncio.gather(*tasks)
 
 async def parse_m3u_playlist(
     namespace: str,

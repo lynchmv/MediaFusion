@@ -153,6 +153,7 @@ Each scheduler has a crontab expression and disable flag:
 - **validate_tv_streams_in_db_crontab** (default: `"0 */6 * * *"`)
 - **sport_video_scheduler_crontab** (default: `"*/20 * * * *"`)
 - **dlhd_scheduler_crontab** (default: `"25 * * * *"`)
+- **bc3tv_scheduler_crontab** (default: `"15 */2 * * *"`)
 - **motogp_tgx_scheduler_crontab** (default: `"0 5 * * *"`)
 - **update_seeders_crontab** (default: `"0 0 * * *"`)
 - **arab_torrents_scheduler_crontab** (default: `"0 0 * * *"`)
@@ -165,6 +166,10 @@ Each scheduler has a crontab expression and disable flag:
 - **cleanup_expired_cache_task_crontab** (default: `"0 0 * * *"`)
 
 Each scheduler can be disabled individually using its corresponding `disable_*_scheduler` setting.
+
+## Local Development Settings
+
+- **use_config_source** (default: `remote`): Use the remote scraper configuration file or local source.
 
 ### How to Configure
 

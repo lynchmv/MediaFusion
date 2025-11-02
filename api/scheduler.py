@@ -1,3 +1,4 @@
+import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -7,9 +8,31 @@ from scrapers.background_scraper import run_background_search
 from scrapers.feed_scraper import run_prowlarr_feed_scraper, run_jackett_feed_scraper
 from scrapers.trackers import update_torrent_seeders
 from scrapers.tv import validate_tv_streams_in_db
+from scrapers.combined_playlist_parser import CombinedPlaylistParser
+from scrapers.tv import add_tv_metadata
+from db.redis_database import REDIS_ASYNC_CLIENT
+from datetime import datetime
 from scrapers.scraper_tasks import cleanup_expired_scraper_task
 from streaming_providers.cache_helpers import cleanup_expired_cache
 
+async def run_combined_parser_job():
+    """A wrapper function to run the new parser and process its results."""
+    logging.info("Scheduler starting combined playlist parser job...")
+    try:
+        if not settings.combined_playlist_sources:
+            logging.warning("COMBINED_PLAYLIST_SOURCES is not set in .env file. Skipping job.")
+            return
+
+        # Split the comma-separated string from the .env file into a list of URLs
+        source_urls = [url.strip() for url in settings.combined_playlist_sources.split(',')]
+
+        # Pass the list of URLs to the parser
+        parser = CombinedPlaylistParser(source_urls=source_urls)
+        await parser.run()
+
+        logging.info("Combined playlist parser job finished successfully.")
+    except Exception:
+        logging.exception("An error occurred during the combined playlist parser job.")
 
 def setup_scheduler(scheduler: AsyncIOScheduler):
     """
@@ -95,6 +118,14 @@ def setup_scheduler(scheduler: AsyncIOScheduler):
             CronTrigger.from_crontab(settings.validate_tv_streams_in_db_crontab),
             name="validate_tv_streams_in_db",
             kwargs={"crontab_expression": settings.validate_tv_streams_in_db_crontab},
+        )
+
+    # Schedule bc3tv parser
+    if not settings.disable_bc3tv_scheduler:
+        scheduler.add_job(
+            run_combined_parser_job,
+            CronTrigger.from_crontab(settings.bc3tv_scheduler_crontab),
+            name="combined_playlist_parser",
         )
 
     # Schedule sport_video scraper

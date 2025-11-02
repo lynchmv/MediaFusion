@@ -400,6 +400,7 @@ class ScraperTask(BaseModel):
         "sport_video",
         "tamilmv",
         "tamil_blasters",
+        "bc3tv",
         "dlhd",
         "motogp_tgx",
         "arab_torrents",

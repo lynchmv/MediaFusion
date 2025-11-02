@@ -146,6 +146,10 @@ async def validate_tv_metadata(metadata: schemas.TVMetaData) -> list[schemas.TVS
         if is_valid:
             stream = metadata.streams[i]
             valid_streams.append(stream)
+            # LYNCH else
+        else:
+            stream = metadata.streams[i]
+            valid_streams.append(stream)
 
     if not valid_streams:
         raise ValidationError("Invalid stream URLs provided.")
@@ -319,7 +323,7 @@ async def validate_service(
                 "message": f"HTTPStatusError: Failed to validate service at {url}: {err}",
             }
         except httpx.RequestError as err:
-            logging.error("Validation error for service at %s: %s", url, err)
+            logging.error("Validation error for service at URL: %s, Exception Type: %s, Exception Args: %s", url, type(err), err.args, exc_info=True)
             return {
                 "status": "error",
                 "message": f"RequestError: Failed to validate service at {url}: {err}",

@@ -1,0 +1,156 @@
+{
+  "id": null,
+  "title": "MediaFusion Overview v2",
+  "tags": ["mediafusion", "monitoring"],
+  "timezone": "browser",
+  "schemaVersion": 37,
+  "version": 2,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "MediaFusion CPU %",
+      "targets": [
+        {
+          "expr": "rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service=\"mediafusion\"}[5m]) * 100",
+          "legendFormat": "MediaFusion"
+        }
+      ],
+      "fieldConfig": {"defaults": {"decimals": 2, "unit": "percent", "min": 0, "max": 100}},
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 6}
+    },
+    {
+      "type": "stat",
+      "title": "MediaFusion Memory %",
+      "targets": [
+        {
+          "expr": "100 * container_memory_usage_bytes{container_label_com_docker_compose_service=\"mediafusion\"} / container_spec_memory_limit_bytes{container_label_com_docker_compose_service=\"mediafusion\"}",
+          "legendFormat": "MediaFusion"
+        }
+      ],
+      "fieldConfig": {"defaults": {"decimals": 2, "unit": "percent", "min": 0, "max": 100}},
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 6}
+    },
+    {
+      "type": "stat",
+      "title": "MediaFusion Health",
+      "targets": [
+        {
+          "expr": "up{job=\"mediafusion\"}",
+          "legendFormat": "MediaFusion"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": 1},
+              {"color": "red", "value": 0}
+            ]
+          }
+        }
+      },
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 6}
+    },
+    {
+      "type": "stat",
+      "title": "MediaFusion Restarts (since boot)",
+      "targets": [
+        {
+          "expr": "changes(container_start_time_seconds{container_label_com_docker_compose_service=\"mediafusion\"}[30d])",
+          "legendFormat": "MediaFusion"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute","steps":[{"color":"green","value":0},{"color":"orange","value":1},{"color":"red","value":3}]}
+        }
+      },
+      "options": {"orientation": "horizontal","reduceOptions":{"calcs":["last"]}},
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 6}
+    },
+
+    {
+      "type": "timeseries",
+      "title": "CPU Usage (%)",
+      "targets": [
+        {
+          "expr": "rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service=~\"mediafusion|dramatiq-worker|mongodb|redis|nginx\"}[1m]) * 100",
+          "legendFormat": "{{container_label_com_docker_compose_service}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"decimals": 2, "unit": "percent", "min": 0, "max": 100}},
+      "gridPos": {"x": 0, "y": 6, "w": 6, "h": 6}
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory Usage (%)",
+      "targets": [
+        {
+          "expr": "100 * container_memory_usage_bytes{container_label_com_docker_compose_service=~\"mediafusion|dramatiq-worker|mongodb|redis|nginx\"} / container_spec_memory_limit_bytes{container_label_com_docker_compose_service=~\"mediafusion|dramatiq-worker|mongodb|redis|nginx\"}",
+          "legendFormat": "{{container_label_com_docker_compose_service}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"decimals": 2, "unit": "percent", "min": 0, "max": 100}},
+      "gridPos": {"x": 6, "y": 6, "w": 6, "h": 6}
+    },
+    {
+      "type": "timeseries",
+      "title": "Disk I/O (KB/s)",
+      "targets": [
+        {
+          "expr": "rate(container_fs_reads_bytes_total{container_label_com_docker_compose_service=~\"mediafusion|dramatiq-worker|mongodb|redis|nginx\"}[1m]) / 1024",
+          "legendFormat": "{{container_label_com_docker_compose_service}} read"
+        },
+        {
+          "expr": "rate(container_fs_writes_bytes_total{container_label_com_docker_compose_service=~\"mediafusion|dramatiq-worker|mongodb|redis|nginx\"}[1m]) / 1024",
+          "legendFormat": "{{container_label_com_docker_compose_service}} write"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "KBs"}},
+      "gridPos": {"x": 12, "y": 6, "w": 6, "h": 6}
+    },
+    {
+      "type": "timeseries",
+      "title": "Network In (KB/s)",
+      "targets": [
+        {
+          "expr": "rate(container_network_receive_bytes_total{container_label_com_docker_compose_service=~\"mediafusion|dramatiq-worker|mongodb|redis|nginx\"}[1m]) / 1024",
+          "legendFormat": "{{container_label_com_docker_compose_service}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "KBs"}},
+      "gridPos": {"x": 18, "y": 6, "w": 6, "h": 6}
+    },
+    {
+      "type": "timeseries",
+      "title": "Network Out (KB/s)",
+      "targets": [
+        {
+          "expr": "rate(container_network_transmit_bytes_total{container_label_com_docker_compose_service=~\"mediafusion|dramatiq-worker|mongodb|redis|nginx\"}[1m]) / 1024",
+          "legendFormat": "{{container_label_com_docker_compose_service}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "KBs"}},
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 6}
+    },
+    {
+      "type": "graph",
+      "title": "MediaFusion Container Restarts (last 30 days)",
+      "targets": [
+        {
+          "expr": "changes(container_start_time_seconds{container_label_com_docker_compose_service=~\"mediafusion|dramatiq-worker|mongodb|redis|nginx\"}[30d])",
+          "legendFormat": "{{container_label_com_docker_compose_service}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short","color":{"mode":"palette-classic"}}},
+      "options": {"tooltip":{"mode":"single"},"legend":{"show":true,"position":"bottom"}},
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 6}
+    }
+  ]
+}
+
