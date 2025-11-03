@@ -145,3 +145,6 @@ kodi/build/
 kodi/*.zip
 !kodi/**/lib/
 .vscode/
+
+PLAN.md
+RESULT.md

@@ -123,6 +123,12 @@ app.add_middleware(middleware.SecureLoggingMiddleware)
 
 app.mount("/static", StaticFiles(directory="resources"), name="static")
 
+from api.scheduler import run_combined_parser_job
+
+@app.get("/trigger-parser", tags=["debug"])
+async def trigger_parser(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_combined_parser_job)
+    return {"message": "Combined playlist parser job triggered in the background."}
 
 # Keep the existing template-based routes for backward compatibility
 @app.get("/", tags=["home"])

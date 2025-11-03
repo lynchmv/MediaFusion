@@ -1332,25 +1332,25 @@ async def save_tv_channel_metadata(tv_metadata: schemas.TVMetaData) -> str:
     )
 
     # Ensure the channel document is upserted
-    try:
-        channel_data = await MediaFusionTVMetaData.get(channel_id)
-        if channel_data:
-            if channel_data.is_poster_working is False:
-                background = (
-                    {"background": tv_metadata.background}
-                    if tv_metadata.background
-                    else {}
+    channel_data = await MediaFusionTVMetaData.get(channel_id)
+    if channel_data:
+        if channel_data.is_poster_working is False:
+            background = (
+                {"background": tv_metadata.background}
+                if tv_metadata.background
+                else {}
+            )
+            await channel_data.update(
+                Set(
+                    {
+                        "poster": tv_metadata.poster,
+                        "is_poster_working": True,
+                        **background,
+                    }
                 )
-                await channel_data.update(
-                    Set(
-                        {
-                            "poster": tv_metadata.poster,
-                            "is_poster_working": True,
-                            **background,
-                        }
-                    )
-                )
-        else:
+            )
+    else:
+        try:
             channel_data = MediaFusionTVMetaData(
                 id=channel_id,
                 title=tv_metadata.title,
@@ -1363,8 +1363,10 @@ async def save_tv_channel_metadata(tv_metadata: schemas.TVMetaData) -> str:
                 type="tv",
             )
             await channel_data.create()
-    except DuplicateKeyError:
-        pass
+        except DuplicateKeyError:
+            # If a duplicate key error occurs, it means another process already created it.
+            # Fetch the existing document to proceed.
+            channel_data = await MediaFusionTVMetaData.get(channel_id)
 
     # Stream processing
     bulk_writer = BulkWriter()
@@ -1387,30 +1389,21 @@ async def save_tv_channel_metadata(tv_metadata: schemas.TVMetaData) -> str:
             drm_key=stream.drm_key,
         )
 
-        # Check if the stream exists (by URL or ytId) and upsert accordingly
+        # Check if the stream exists (by URL, ytId, and externalUrl)
         existing_stream = await TVStreams.find_one(
-            TVStreams.url == stream.url,
-            TVStreams.ytId == stream.ytId,
+            TVStreams.url == stream_doc.url,
+            TVStreams.ytId == stream_doc.ytId,
+            TVStreams.externalUrl == stream_doc.externalUrl,
         )
-        if existing_stream == stream_doc:
-            update_data = {}
-            if (
-                stream.drm_key_id != existing_stream.drm_key_id
-                or stream.drm_key != existing_stream.drm_key
-            ) and tv_metadata.namespace in existing_stream.namespaces:
-                update_data = {
-                    "drm_key_id": stream.drm_key_id,
-                    "drm_key": stream.drm_key,
-                }
+
+        if existing_stream:
+            # If a stream is found, update its namespaces if the current namespace is new
             if tv_metadata.namespace not in existing_stream.namespaces:
                 existing_stream.namespaces.append(tv_metadata.namespace)
-                update_data.update({"namespaces": existing_stream.namespaces})
-
-            if update_data:
-                await existing_stream.update(
-                    Set(update_data),
-                    bulk_writer=bulk_writer,
-                )
+                await existing_stream.update(Set({"namespaces": existing_stream.namespaces}), bulk_writer=bulk_writer)
+                logging.info(f"Updated namespaces for existing TVStream: {stream_doc.name} ({stream_doc.url})")
+            else:
+                pass
         else:
             await TVStreams.insert(stream_doc)
 

@@ -1,5 +1,8 @@
 services:
   mediafusion:
+    build:
+      context: ../..
+      dockerfile: deployment/Dockerfile
     image: my-mediafusion:dev-3.3.34
     volumes:
       - ./clear_poster_cache.py:/mediafusion/clear_poster_cache.py
@@ -84,9 +87,7 @@ services:
       - "6380:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes --save 60 1
-    restart: unless-stopped
-    mem_limit: 128m
+    mem_limit: 256m
     memswap_limit: 256m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
