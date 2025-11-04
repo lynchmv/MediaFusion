@@ -32,6 +32,7 @@ from db.redis_database import REDIS_ASYNC_CLIENT
 from db.schemas import Stream, TorrentStreamsList
 from scrapers.dlhd import dlhd_schedule_service
 from scrapers.mdblist import initialize_mdblist_scraper
+from scrapers.epg_scraper import fetch_and_parse_epg
 from scrapers.scraper_tasks import run_scrapers, meta_fetcher
 from streaming_providers.cache_helpers import store_cached_info_hashes
 from utils import crypto
@@ -76,8 +77,7 @@ def apply_parental_guide_filters(
         cert_filters = []
         if "Unknown" in user_data.certification_filter:
             cert_filters.append(
-                {"parent_guide_certificates": {"$exists": True, "$ne": []}}
-            )
+                {"parent_guide_certificates": {"$exists": True, "$ne": []}})
         filter_values = get_filter_certification_values(user_data)
         if filter_values:
             cert_filters.append({"parent_guide_certificates": {"$nin": filter_values}})
@@ -150,7 +150,7 @@ async def get_meta_list(
         {"$sort": {f"catalog_stats.last_stream_added": -1}},
         {"$skip": skip},
         {"$limit": limit},
-        {"$set": {"poster": {"$concat": [poster_path, "$_id", ".jpg"]}}},
+        {"$set": {"poster": {"$concat": [poster_path, "$_id", ".jpg"]}}}
     ]
 
     # Execute the aggregation pipeline
@@ -223,7 +223,7 @@ async def get_mdblist_meta_list(
             {"$sort": {"last_stream_added": -1}},
             {"$skip": skip},
             {"$limit": limit},
-            {"$set": {"poster": {"$concat": [poster_path, "$_id", ".jpg"]}}},
+            {"$set": {"poster": {"$concat": [poster_path, "$_id", ".jpg"]}}}
         ]
 
         results = await meta_class.get_motor_collection().aggregate(pipeline).to_list()
@@ -279,7 +279,7 @@ async def get_tv_meta_list(
         {"$sort": {"title": 1}},
         {"$skip": skip},
         {"$limit": limit},
-        {"$set": {"poster": {"$concat": [poster_path, "$_id", ".jpg"]}}},
+        {"$set": {"poster": {"$concat": [poster_path, "$_id", ".jpg"]}}}
     ]
 
     # Execute the aggregation pipeline
@@ -545,7 +545,7 @@ async def get_streams_base(
     if content_type == "series":
         cache_key_parts.extend([str(season), str(episode)])
 
-    cache_key = f"torrent_streams:{':'.join(cache_key_parts)}"
+    cache_key = f"torrent_streams::{':'.join(cache_key_parts)}"
     lock_key = f"{cache_key}_lock" if live_search_streams else None
     redis_lock = None
 
@@ -1149,7 +1149,7 @@ async def process_search_query(
                     "$cond": [
                         {"$eq": [{"$toLower": "$title"}, search_query.lower()]},
                         10,
-                        0,
+                        0
                     ]
                 },
                 "titleStartsWith": {
@@ -1157,13 +1157,13 @@ async def process_search_query(
                         {
                             "$regexMatch": {
                                 "input": {"$toLower": "$title"},
-                                "regex": "^" + search_query.lower(),
+                                "regex": f"^{search_query.lower()}"
                             }
                         },
                         5,
-                        0,
+                        0
                     ]
-                },
+                }
             }
         },
         {
@@ -1462,7 +1462,7 @@ async def save_events_data(metadata: dict) -> str:
     await REDIS_ASYNC_CLIENT.set(event_key, events_json, ex=cache_ttl)
 
     logging.info(
-        f"{'Updating' if existing_event_json else 'Inserting'} event data for {events_data.title} with event key {event_key}"
+        f"{ 'Updating' if existing_event_json else 'Inserting'} event data for {events_data.title} with event key {event_key}"
     )
 
     # Add the event key to a set of all events
@@ -1477,10 +1477,51 @@ async def save_events_data(metadata: dict) -> str:
     return event_key
 
 
+
+
 async def get_events_meta_list(genre=None, skip=0, limit=50) -> list[schemas.Meta]:
-    return await dlhd_schedule_service.get_scheduled_events(
+    # First, get the scheduled events from the dlhd_schedule_service
+    dlhd_events = await dlhd_schedule_service.get_scheduled_events(
         genre=genre, skip=skip, limit=limit
     )
+
+    # Then, parse the EPG file
+    try:
+        epg_channels, epg_programs = await fetch_and_parse_epg(
+            "https://raw.githubusercontent.com/acidjesuz/EPGTalk/master/guide.xml"
+        )
+    except (ConnectionError, FileNotFoundError) as e:
+        # If the EPG file is not found, just return the dlhd_events
+        return dlhd_events
+
+    # Create a dictionary for quick channel lookup
+    channel_dict = {channel.id: channel for channel in epg_channels}
+
+    # Convert EPG programs to Meta objects
+    epg_meta_list = []
+    for program in epg_programs:
+        channel = channel_dict.get(program.channel_id)
+        if channel:
+            epg_meta_list.append(
+                schemas.Meta(
+                    _id=f"epg_{program.channel_id}_{program.start_time}",
+                    title=program.title,
+                    type="tv",
+                    poster=channel.icon,
+                    description=program.desc,
+                    genres=[genre for genre in [channel.display_name] if genre] # Add channel name as genre
+                )
+            )
+
+    # Combine the two lists of events
+    combined_events = dlhd_events + epg_meta_list
+
+    # Apply genre filter if specified
+    if genre:
+        combined_events = [event for event in combined_events if genre in event.genres]
+
+    # Apply skip and limit
+    return combined_events[skip : skip + limit]
 
 
 async def get_event_meta(meta_id: str) -> dict:
@@ -1815,3 +1856,38 @@ async def update_meta_stream(
     await REDIS_ASYNC_CLIENT.delete(*cache_keys)
     logging.info(f"Updated stream metadata for {meta_id}")
     return update_data
+
+async def process_event_search_query(search_query: str) -> dict:
+    search_query_lower = search_query.lower()
+    event_keys = await REDIS_ASYNC_CLIENT.zrange("events:all", 0, -1)
+    search_results = []
+
+    if not event_keys:
+        return {"metas": []}
+
+    event_jsons = await REDIS_ASYNC_CLIENT.mget(event_keys)
+
+    for event_json in event_jsons:
+        if not event_json:
+            continue
+
+        event_data = MediaFusionEventsMetaData.model_validate_json(event_json)
+
+        title_lower = event_data.title.lower()
+        description_lower = (event_data.description or "").lower()
+
+        if search_query_lower in title_lower or search_query_lower in description_lower:
+            meta_dict = {
+                "_id": event_data.id,
+                "title": event_data.title,
+                "type": "events",
+                "poster": event_data.poster,
+                "background": event_data.background,
+                "logo": event_data.logo,
+                "genres": event_data.genres,
+                "description": event_data.description,
+                "website": event_data.website,
+            }
+            search_results.append(schemas.Meta.model_validate(meta_dict))
+
+    return {"metas": search_results}

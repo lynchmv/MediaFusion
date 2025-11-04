@@ -267,7 +267,12 @@ async def get_manifest(
     except Exception as e:
         logging.exception("Error gathering genres: %s", e)
         genres_list = [[] for _ in catalog_types]  # Provide default empty list
-    genres = dict(zip(catalog_types, genres_list))
+
+    # Replace '/' with '--' in genre names to make them URL-safe.
+    sanitized_genres_list = [
+        [genre.replace("/", "--") for genre in genres] for genres in genres_list
+    ]
+    genres = dict(zip(catalog_types, sanitized_genres_list))
 
     return await generate_manifest(user_data, genres)
 
@@ -340,6 +345,9 @@ async def get_catalog(
     user_data: schemas.UserData = Depends(get_user_data),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
+    if genre:
+        # Replace '--' with '/' to restore the original genre name.
+        genre = genre.replace("--", "/")
     if genre and genre.lower() == "adult":
         raise HTTPException(404, "Adult genre is not allowed.")
 
@@ -492,11 +500,12 @@ async def fetch_metas(
 @wrappers.auth_required
 async def search_meta(
     request: Request,
-    catalog_type: Literal["movie", "series", "tv"],
+    catalog_type: Literal["movie", "series", "tv", "events"],
     catalog_id: Literal[
         "mediafusion_search_movies",
         "mediafusion_search_series",
         "mediafusion_search_tv",
+        "mediafusion_search_events",
     ],
     search_query: str,
     user_data: schemas.UserData = Depends(get_user_data),
@@ -507,6 +516,8 @@ async def search_meta(
         return await crud.process_tv_search_query(
             search_query, namespace=get_request_namespace(request)
         )
+    elif catalog_type == "events":
+        return await crud.process_event_search_query(search_query)
 
     metadata = await crud.process_search_query(search_query, catalog_type, user_data)
     return await update_rpdb_posters(

@@ -37,7 +37,9 @@ def is_valid_url(url: str) -> bool:
 
 
 async def does_url_exist(url: str) -> bool:
-    async with httpx.AsyncClient(proxy=settings.requests_proxy_url) as client:
+    async with httpx.AsyncClient(
+        proxy=settings.requests_proxy_url, verify=False
+    ) as client:
         try:
             response = await client.head(
                 url, timeout=10, headers=const.UA_HEADER, follow_redirects=True
@@ -63,7 +65,9 @@ async def validate_live_stream_url(
         return False
 
     headers = behaviour_hint.get("proxyHeaders", {}).get("request", {})
-    async with httpx.AsyncClient(proxy=settings.requests_proxy_url) as client:
+    async with httpx.AsyncClient(
+        proxy=settings.requests_proxy_url, verify=False
+    ) as client:
         try:
             response = await client.head(
                 url, timeout=10, headers=headers, follow_redirects=True

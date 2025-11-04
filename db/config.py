@@ -192,6 +192,10 @@ class Settings(BaseSettings):
     cleanup_expired_scraper_task_crontab: str = "0 * * * *"
     cleanup_expired_cache_task_crontab: str = "0 0 * * *"
 
+    # EPG Scheduler Settings
+    epg_scheduler_crontab: str = "0 */6 * * *"
+    disable_epg_scheduler: bool = False
+
     @model_validator(mode="after")
     def default_poster_host_url(self) -> "Settings":
         if not self.poster_host_url:

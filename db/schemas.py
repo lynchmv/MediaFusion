@@ -508,3 +508,17 @@ class MigrateID(BaseModel):
     mediafusion_id: str
     imdb_id: str
     media_type: Literal["movie", "series"]
+
+
+class EPGChannel(BaseModel):
+    id: str
+    display_name: str
+    icon: str | None = None
+
+
+class EPGProgram(BaseModel):
+    start_time: str
+    stop_time: str
+    channel_id: str
+    title: str
+    desc: str | None = None

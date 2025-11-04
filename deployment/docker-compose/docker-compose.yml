@@ -3,6 +3,8 @@ services:
     build:
       context: ../..
       dockerfile: deployment/Dockerfile
+      args:
+        - VERSION=${VERSION}
     image: my-mediafusion:dev-3.3.34
     volumes:
       - ./clear_poster_cache.py:/mediafusion/clear_poster_cache.py

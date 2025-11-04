@@ -28,6 +28,7 @@ from db.redis_database import REDIS_ASYNC_CLIENT
 from mediafusion_scrapy.task import run_spider
 from scrapers.scraper_tasks import meta_fetcher
 from scrapers.tmdb_data import get_tmdb_data
+from scrapers.epg_scraper import fetch_and_parse_epg
 from scrapers.tv import add_tv_metadata, parse_m3u_playlist
 from utils import const, torrent
 from utils.network import get_request_namespace
@@ -806,6 +807,9 @@ async def analyze_torrent(
         raise HTTPException(
             status_code=400, detail=f"Failed to analyze torrent: {str(e)}"
         )
+
+
+
 
 
 @router.post("/update_images")

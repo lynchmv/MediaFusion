@@ -487,15 +487,18 @@ class DLHDScheduleService:
                 cache_key, max_time, min_time, start=skip, num=limit
             )
 
-            if not event_keys and genre and skip != 0:
-                logging.info(
-                    "No events found in cache for the specified time window, pagination or genre"
-                )
+            if not event_keys:
+                if genre or skip != 0:
+                    logging.info(
+                        "No events found in cache for the specified time window, pagination or genre"
+                    )
                 return []
 
             logging.info(f"Found {len(event_keys)} events in cache")
-            for event_key in event_keys:
-                event_json = await REDIS_ASYNC_CLIENT.get(event_key)
+
+            event_jsons = await REDIS_ASYNC_CLIENT.mget(event_keys)
+
+            for i, event_json in enumerate(event_jsons):
                 if event_json:
                     event = MediaFusionEventsMetaData.model_validate_json(event_json)
                     event.poster = (
@@ -504,7 +507,7 @@ class DLHDScheduleService:
                     event.description = f"🎬 {event.title} - ⏰ {self.format_event_time(event.event_start_timestamp)}"
                     events.append(event)
                 else:
-                    await REDIS_ASYNC_CLIENT.zrem(cache_key, event_key)
+                    await REDIS_ASYNC_CLIENT.zrem(cache_key, event_keys[i])
 
             if events or genre or skip != 0:
                 # return cached events if found or genre is specified

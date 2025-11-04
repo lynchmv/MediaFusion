@@ -267,3 +267,21 @@ def setup_scheduler(scheduler: AsyncIOScheduler):
         name="background_search",
         kwargs={"crontab_expression": settings.background_search_crontab},
     )
+
+    # Schedule EPG scraper job
+    if not settings.disable_epg_scheduler:
+        scheduler.add_job(
+            run_epg_scraper_job,
+            CronTrigger.from_crontab(settings.epg_scheduler_crontab),
+            name="epg_scraper",
+        )
+
+
+async def run_epg_scraper_job():
+    """A wrapper function to run the EPG scraper and process its results."""
+    logging.info("Scheduler starting EPG scraper job...")
+    try:
+        await crud.get_events_meta_list()
+        logging.info("EPG scraper job finished successfully.")
+    except Exception:
+        logging.exception("An error occurred during the EPG scraper job.")
