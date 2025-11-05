@@ -160,11 +160,10 @@ class CombinedPlaylistParser:
     async def _process_regular_channel(
         self,
         channel,
-        existing_tv_channels_in_db,
         unique_channels_in_group,
         channel_batch,
-        existing_stream_urls,
         new_streams_batch,
+        existing_stream_urls,
     ):
         """Processes a channel as a regular TV channel."""
         raw_name = channel.name.strip()
@@ -196,42 +195,31 @@ class CombinedPlaylistParser:
             return
         unique_channels_in_group.add(in_memory_key)
 
-        found_duplicate_tv = False
-        for existing_channel in existing_tv_channels_in_db:
-            self.logger.debug(
-                f"Comparing '{channel_name}' with existing '{existing_channel.title}'. Fuzzy ratio: {fuzz.ratio(channel_name, existing_channel.title)}."
-            )
-            if (
-                fuzz.ratio(channel_name, existing_channel.title)
-                >= FUZZY_MATCH_THRESHOLD
-            ):
-                found_duplicate_tv = True
-                self.logger.debug(
-                    f"Found fuzzy duplicate TV channel '{channel_name}' with existing '{existing_channel.title}'."
+        # Efficiently check for existing channel and stream
+        existing_channel = await MediaFusionTVMetaData.find_one(
+            MediaFusionTVMetaData.title == channel_name
+        )
+
+        if existing_channel:
+            if channel.url not in existing_stream_urls:
+                self.merged_tv_streams_count += 1
+                new_stream = models.TVStreams(
+                    meta_id=existing_channel.id,
+                    name=channel_name,
+                    url=channel.url,
+                    source=self.playlist_source,
                 )
-                new_stream_url = channel.url
-                stream_exists = new_stream_url in existing_stream_urls
-
-                if not stream_exists:
-                    self.merged_tv_streams_count += 1
-                    new_stream = models.TVStreams(
-                        meta_id=existing_channel.id,
-                        name=channel_name,
-                        url=new_stream_url,
-                        source=self.playlist_source,
-                    )
-                    new_streams_batch.append(new_stream)
-                    self.logger.info(
-                        f"Added new stream for '{channel_name}' to batch, to be merged into existing TV channel '{existing_channel.title}'."
-                    )
-                else:
-                    self.skipped_duplicate_tv_channels_count += 1
-                    self.logger.info(
-                        f"Skipped duplicate TV channel '{channel_name}' as stream already exists in '{existing_channel.title}'."
-                    )
-                break
-
-        if not found_duplicate_tv:
+                new_streams_batch.append(new_stream)
+                existing_stream_urls.add(channel.url)
+                self.logger.info(
+                    f"Added new stream for '{channel_name}' to batch, to be merged into existing TV channel '{existing_channel.title}'."
+                )
+            else:
+                self.skipped_duplicate_tv_channels_count += 1
+                self.logger.info(
+                    f"Skipped duplicate TV channel '{channel_name}' as stream already exists in '{existing_channel.title}'."
+                )
+        else:
             self.added_new_tv_channels_count += 1
             self.logger.debug(f"Adding new TV channel '{channel_name}' to batch.")
             metadata = schemas.TVMetaData(
@@ -254,6 +242,8 @@ class CombinedPlaylistParser:
                 ],
             )
             channel_batch.append(metadata.model_dump())
+            # Add the new stream url to the existing_stream_urls to avoid duplicates in the same run
+            existing_stream_urls.add(channel.url)
 
     async def run(self):
         """
@@ -275,13 +265,6 @@ class CombinedPlaylistParser:
 
         logging.info(
             f"Successfully parsed and grouped {len(channels)} entries into {len(grouped_channels)} groups."
-        )
-
-        existing_tv_channels_in_db = await MediaFusionTVMetaData.find_all(
-            projection_model=schemas.TVMetaProjection
-        ).to_list()
-        self.logger.debug(
-            f"Found {len(existing_tv_channels_in_db)} existing TV channels in DB for comparison."
         )
 
         # Batch-fetch existing stream URLs for faster lookups
@@ -323,11 +306,10 @@ class CombinedPlaylistParser:
                 else:
                     await self._process_regular_channel(
                         channel,
-                        existing_tv_channels_in_db,
                         unique_channels_in_group,
                         channel_batch,
-                        existing_stream_urls,
                         new_streams_batch,
+                        existing_stream_urls,
                     )
 
         if new_streams_batch:

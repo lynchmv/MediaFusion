@@ -1,4 +1,3 @@
-import math
 from typing import Dict, List, Optional, Any, Literal
 
 from fastapi import APIRouter, Depends, Request, HTTPException, BackgroundTasks
@@ -60,6 +59,60 @@ class StreamData(BaseModel):
     video_id: str
     secret_str: str
     series_data: Optional[str] = None
+
+
+class CalendarDeepLinks(BaseModel):
+    calendar: str
+
+
+class CalendarItemDeepLinks(BaseModel):
+    metaDetailsStreams: str
+
+
+class CalendarSelectableDate(BaseModel):
+    month: int
+    year: int
+    selected: bool
+    deepLinks: CalendarDeepLinks
+
+
+class CalendarSelectable(BaseModel):
+    prev: CalendarSelectableDate
+    next: CalendarSelectableDate
+
+
+class CalendarDate(BaseModel):
+    day: int
+    month: int
+    year: int
+
+
+class CalendarMonthInfo(BaseModel):
+    today: Optional[int] = None
+    days: int
+    firstWeekday: int
+
+
+class CalendarContentItem(BaseModel):
+    id: str
+    name: str
+    poster: Optional[str] = None
+    title: str
+    season: Optional[int] = None
+    episode: Optional[int] = None
+    deepLinks: CalendarItemDeepLinks
+
+
+class CalendarItem(BaseModel):
+    date: CalendarDate
+    items: List[CalendarContentItem]
+
+
+class Calendar(BaseModel):
+    selectable: CalendarSelectable
+    selected: Optional[CalendarDate] = None
+    monthInfo: CalendarMonthInfo
+    items: List[CalendarItem]
 
 
 # ---- API Endpoints ----
@@ -228,3 +281,45 @@ async def get_download_info(
             else None
         ),
     }
+
+
+@router.get("/stremio/calendar/{year}/{month}.json", response_model=Calendar)
+async def get_stremio_calendar(
+    year: int,
+    month: int,
+    user_data: schemas.UserData = Depends(get_user_data),
+):
+    """
+    Get calendar data for Stremio, including EPG events.
+    """
+    calendar_data = await crud.get_stremio_calendar_data(year, month, user_data)
+    return calendar_data
+
+
+@router.get(
+    "/stremio/calendar/stream/{secret_str}/{channel_id}/{start_time}",
+    response_model=List[schemas.Stream],
+)
+async def get_stremio_calendar_stream(
+    secret_str: str,
+    channel_id: str,
+    start_time: int,
+    user_data: schemas.UserData = Depends(get_user_data),
+) -> List[schemas.Stream]:
+    """
+    Get stream for a specific EPG program from the Stremio calendar.
+    """
+    # This endpoint will need to find the actual stream for the given channel_id and start_time
+    # For now, let's return a placeholder or an actual stream if available
+    # You would typically look up the channel and its associated streams here
+
+    # Example: Find a TV stream for the channel_id
+    tv_streams = await crud.get_tv_streams(channel_id, "mediafusion", user_data)
+
+    if not tv_streams:
+        raise HTTPException(status_code=404, detail="No streams found for this EPG program.")
+
+    # For simplicity, return the first available stream. In a real scenario, you might want to
+    # implement logic to select the best stream based on user preferences or stream quality.
+    return tv_streams
+        

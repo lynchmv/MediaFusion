@@ -45,7 +45,7 @@
     {% set catalog_definitions = {
       "mediafusion_search_movies": {"type": "movie", "name": "Movies", "genres": [], "is_search": true},
       "mediafusion_search_series": {"type": "series", "name": "Series", "genres": [], "is_search": true},
-      "mediafusion_search_tv": {"type": "tv", "name": "Live TV", "genres": [], "is_search": true},
+      "mediafusion_search_tv": {"type": "tv", "name": "Live TV", "genres": [], "is_search": false},
       "tamil_hdrip": {"type": "movie", "name": "Tamil HD Movies"},
       "tamil_tcrip": {"type": "movie", "name": "Tamil TCRip Movies"},
       "tamil_old": {"type": "movie", "name": "Tamil Old Movies"},
@@ -123,7 +123,7 @@
 		{% if catalog.is_search %}
 		{"name": "search", "isRequired": true}
 		{% else %}
-        {"name": "skip", "isRequired": false}
+        {"name": "skip", "isRequired": false},{"name": "search", "isRequired": false}
 		{% endif %}
         {% if genres %}
         , {"name": "genre", "isRequired": false, "options": {{ genres | tojson }}}

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Type, Literal
 from uuid import uuid4
 
@@ -54,6 +54,9 @@ from utils.validation_helper import (
     validate_parent_guide_nudity,
     get_filter_certification_values,
     is_video_file,
+)
+from api.frontend_api import (
+    Calendar, CalendarItem, CalendarContentItem, CalendarDate, CalendarMonthInfo, CalendarSelectable, CalendarSelectableDate, CalendarDeepLinks, CalendarItemDeepLinks
 )
 
 
@@ -1485,43 +1488,7 @@ async def get_events_meta_list(genre=None, skip=0, limit=50) -> list[schemas.Met
         genre=genre, skip=skip, limit=limit
     )
 
-    # Then, parse the EPG file
-    try:
-        epg_channels, epg_programs = await fetch_and_parse_epg(
-            "https://raw.githubusercontent.com/acidjesuz/EPGTalk/master/guide.xml"
-        )
-    except (ConnectionError, FileNotFoundError) as e:
-        # If the EPG file is not found, just return the dlhd_events
-        return dlhd_events
-
-    # Create a dictionary for quick channel lookup
-    channel_dict = {channel.id: channel for channel in epg_channels}
-
-    # Convert EPG programs to Meta objects
-    epg_meta_list = []
-    for program in epg_programs:
-        channel = channel_dict.get(program.channel_id)
-        if channel:
-            epg_meta_list.append(
-                schemas.Meta(
-                    _id=f"epg_{program.channel_id}_{program.start_time}",
-                    title=program.title,
-                    type="tv",
-                    poster=channel.icon,
-                    description=program.desc,
-                    genres=[genre for genre in [channel.display_name] if genre] # Add channel name as genre
-                )
-            )
-
-    # Combine the two lists of events
-    combined_events = dlhd_events + epg_meta_list
-
-    # Apply genre filter if specified
-    if genre:
-        combined_events = [event for event in combined_events if genre in event.genres]
-
-    # Apply skip and limit
-    return combined_events[skip : skip + limit]
+    return dlhd_events
 
 
 async def get_event_meta(meta_id: str) -> dict:
@@ -1891,3 +1858,96 @@ async def process_event_search_query(search_query: str) -> dict:
             search_results.append(schemas.Meta.model_validate(meta_dict))
 
     return {"metas": search_results}
+
+
+async def get_stremio_calendar_data(year: int, month: int, user_data: schemas.UserData) -> Calendar:
+    # Fetch EPG data
+    try:
+        epg_channels, epg_programs = await fetch_and_parse_epg(
+            "https://raw.githubusercontent.com/acidjesuz/EPGTalk/master/guide.xml"
+        )
+    except (ConnectionError, FileNotFoundError):
+        epg_channels, epg_programs = [], []
+
+    channel_dict = {channel.id: channel for channel in epg_channels}
+
+    calendar_items_dict: Dict[int, List[CalendarContentItem]] = {}
+
+    for program in epg_programs:
+        program_start_time = datetime.fromtimestamp(program.start_time, tz=timezone.utc)
+        if program_start_time.year == year and program_start_time.month == month:
+            channel = channel_dict.get(program.channel_id)
+            if channel:
+                day = program_start_time.day
+                if day not in calendar_items_dict:
+                    calendar_items_dict[day] = []
+
+                # Construct deepLinks for the program
+                # This URL will point to MediaFusion's stream endpoint for this specific EPG program
+                # The 'id' will be used to identify the program in the stream endpoint
+                deep_links = CalendarItemDeepLinks(
+                    metaDetailsStreams=f"{settings.host_url}/stremio/calendar/stream/{user_data.secret_str}/{program.channel_id}/{program.start_time}"
+                )
+
+                calendar_items_dict[day].append(
+                    CalendarContentItem(
+                        id=f"epg_{program.channel_id}_{program.start_time}",
+                        name=channel.display_name,
+                        poster=channel.icon,
+                        title=program.title,
+                        deepLinks=deep_links,
+                    )
+                )
+
+    calendar_items = []
+    for day in sorted(calendar_items_dict.keys()):
+        calendar_items.append(
+            CalendarItem(
+                date=CalendarDate(day=day, month=month, year=year),
+                items=calendar_items_dict[day],
+            )
+        )
+
+    # Calculate month info
+    first_day_of_month = datetime(year, month, 1)
+    days_in_month = (first_day_of_month.replace(month=month % 12 + 1, day=1) - timedelta(days=1)).day
+    first_weekday = first_day_of_month.weekday()  # Monday is 0, Sunday is 6
+
+    # Stremio calendar expects Sunday as 0, so adjust if needed
+    # Python's weekday() returns 0 for Monday, 6 for Sunday
+    # Stremio's firstWeekday is 0 for Sunday, 6 for Saturday
+    # So, if Python's weekday is 6 (Sunday), Stremio's is 0
+    # Otherwise, Stremio's is Python's weekday + 1
+    stremio_first_weekday = (first_weekday + 1) % 7
+
+    month_info = CalendarMonthInfo(
+        today=datetime.now(tz=timezone.utc).day if datetime.now(tz=timezone.utc).month == month and datetime.now(tz=timezone.utc).year == year else None,
+        days=days_in_month,
+        firstWeekday=stremio_first_weekday,
+    )
+
+    # Create selectable dates for previous and next month
+    prev_month_date = (first_day_of_month - timedelta(days=1)).replace(day=1)
+    next_month_date = (first_day_of_month + timedelta(days=days_in_month)).replace(day=1)
+
+    selectable = CalendarSelectable(
+        prev=CalendarSelectableDate(
+            month=prev_month_date.month,
+            year=prev_month_date.year,
+            selected=False,
+            deepLinks=CalendarDeepLinks(calendar=f"{settings.host_url}/stremio/calendar/{prev_month_date.year}/{prev_month_date.month}.json"),
+        ),
+        next=CalendarSelectableDate(
+            month=next_month_date.month,
+            year=next_month_date.year,
+            selected=False,
+            deepLinks=CalendarDeepLinks(calendar=f"{settings.host_url}/stremio/calendar/{next_month_date.year}/{next_month_date.month}.json"),
+        ),
+    )
+
+    return Calendar(
+        selectable=selectable,
+        selected=CalendarDate(day=datetime.now(tz=timezone.utc).day, month=month, year=year) if datetime.now(tz=timezone.utc).month == month and datetime.now(tz=timezone.utc).year == year else None,
+        monthInfo=month_info,
+        items=calendar_items,
+    )

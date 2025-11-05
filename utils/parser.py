@@ -669,7 +669,25 @@ async def generate_manifest(user_data: UserData, genres: dict) -> dict:
 
     manifest_json = MANIFEST_TEMPLATE.render(manifest_data)
     try:
-        return json.loads(manifest_json)
+        manifest = json.loads(manifest_json)
+        manifest["catalogs"].append(
+            {
+                "type": "calendar",
+                "id": "mediafusion_epg_calendar",
+                "name": "EPG Calendar",
+                "extra": [
+                    {
+                        "name": "year",
+                        "isRequired": True
+                    },
+                    {
+                        "name": "month",
+                        "isRequired": True
+                    }
+                ]
+            }
+        )
+        return manifest
     except json.JSONDecodeError as e:
         logging.exception(f"Failed to parse manifest JSON: {e}")
         return {}

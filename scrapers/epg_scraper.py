@@ -1,11 +1,14 @@
 
 import aiohttp
 import xml.etree.ElementTree as ET
+import pickle
+from db.redis_database import REDIS_ASYNC_CLIENT
 from db.schemas import EPGChannel, EPGProgram
 
 async def fetch_and_parse_epg(url: str) -> tuple[list[EPGChannel], list[EPGProgram]]:
     """
     Fetches an XMLTV EPG file from a URL and extracts channel and program data.
+    Caches the parsed data in Redis for 6 hours.
 
     Args:
         url (str): The URL of the EPG file.
@@ -13,6 +16,12 @@ async def fetch_and_parse_epg(url: str) -> tuple[list[EPGChannel], list[EPGProgr
     Returns:
         tuple: A tuple containing a list of EPGChannel objects and a list of EPGProgram objects.
     """
+    cache_key = f"epg_data:{url}"
+    cached_data = await redis_client.get(cache_key)
+
+    if cached_data:
+        return pickle.loads(cached_data)
+
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(url) as response:
@@ -39,6 +48,9 @@ async def fetch_and_parse_epg(url: str) -> tuple[list[EPGChannel], list[EPGProgr
         title = program_elem.find('title').text
         desc = program_elem.find('desc').text if program_elem.find('desc') is not None else None
         programs.append(EPGProgram(start_time=start_time, stop_time=stop_time, channel_id=channel_id, title=title, desc=desc))
+
+    # Cache the parsed data in Redis for 6 hours
+    await redis_client.set(cache_key, pickle.dumps((channels, programs)), ex=21600)
 
     return channels, programs
 
