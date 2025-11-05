@@ -506,6 +506,7 @@ async def search_meta(
         "mediafusion_search_series",
         "mediafusion_search_tv",
         "mediafusion_search_events",
+        "live_tv",
     ],
     search_query: str,
     user_data: schemas.UserData = Depends(get_user_data),
