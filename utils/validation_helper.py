@@ -362,6 +362,7 @@ async def validate_service(
     url: str,
     params: Optional[dict] = None,
     success_message: Optional[str] = None,
+    invalid_creds_message: Optional[str] = None,
 ) -> dict:
     """
     Validate a service endpoint by making a test request.
@@ -370,12 +371,11 @@ async def validate_service(
         url: Service URL to validate
         params: Optional query parameters
         success_message: Optional success message to return
+        invalid_creds_message: Optional message for invalid credentials (403 status)
         
     Returns:
         Dictionary with 'status' ('success' or 'error') and optional 'message'
     """
-    invalid_creds_message: Optional[str] = None,
-) -> dict:
     from utils.http_client import get_shared_client
     
     client = get_shared_client()
