@@ -18,6 +18,22 @@ executor = ThreadPoolExecutor(max_workers=4)
 
 
 async def fetch_poster_image(url: str) -> bytes:
+    """
+    Fetch poster image from URL with Redis caching.
+    
+    Checks Redis cache first, then fetches from URL if not cached.
+    Caches images for 1 hour to reduce bandwidth usage.
+    
+    Args:
+        url: Image URL to fetch
+        
+    Returns:
+        Image content as bytes
+        
+    Raises:
+        ValueError: If content type is not an image
+        aiohttp.ClientError: If HTTP request fails
+    """
     # Check if the image is cached in Redis
     cached_image = await REDIS_ASYNC_CLIENT.get(url)
     if cached_image:
@@ -46,6 +62,22 @@ async def fetch_poster_image(url: str) -> bytes:
 def process_poster_image(
     content: bytes, mediafusion_data: PosterData
 ) -> BytesIO:
+    """
+    Process poster image by adding title overlay and rating badge.
+    
+    CPU-intensive operation that should run in thread pool executor.
+    Adds title text and IMDb rating to poster image.
+    
+    Args:
+        content: Raw image bytes
+        mediafusion_data: Poster data containing title and rating
+        
+    Returns:
+        BytesIO: Processed image as BytesIO object
+        
+    Raises:
+        UnidentifiedImageError: If image format is not supported
+    """
     try:
         image = Image.open(BytesIO(content)).convert("RGB")
         image = image.resize((300, 450))
