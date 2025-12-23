@@ -1476,7 +1476,22 @@ async def save_series_metadata(
     session: AsyncSession,
     metadata: dict,
 ) -> SeriesMetadata:
-    """Save or update series metadata"""
+    """
+    Save or update series metadata in the database.
+    
+    Creates or updates base metadata, series-specific fields, and related entities
+    (stars, parental certificates, genres, catalogs, aka titles).
+    
+    Args:
+        session: Database session
+        metadata: Dictionary containing series metadata fields
+        
+    Returns:
+        SeriesMetadata: Saved or updated SeriesMetadata object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     base = await save_base_metadata(session, metadata, MediaType.SERIES)
 
     series = SeriesMetadata(
@@ -1521,7 +1536,21 @@ async def save_tv_channel_metadata(
     session: AsyncSession,
     tv_metadata: schemas.TVMetaData,
 ) -> str:
-    """Save or update TV channel metadata"""
+    """
+    Save or update TV channel metadata in the database.
+    
+    Creates or updates base metadata and TV-specific fields (country, language, logo).
+    
+    Args:
+        session: Database session
+        tv_metadata: TVMetaData schema object containing channel information
+        
+    Returns:
+        str: Saved or updated TV metadata ID
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     metadata = tv_metadata.model_dump()
     base = await save_base_metadata(session, metadata, MediaType.TV)
 
@@ -1948,14 +1977,20 @@ async def get_series_streams(
 async def _store_new_streams_background(
     session: AsyncSession,
     streams: List[TorrentStreamData],
-    redis_lock = None,
+    redis_lock: Optional[Any] = None,
 ) -> None:
-    """Background task to store new streams and release Redis lock
+    """
+    Background task to store new streams and release Redis lock.
     
     This function is called as a background task to:
     1. Convert TorrentStreamData to dicts for storage
     2. Store new streams in the database
     3. Release the Redis lock when done
+    
+    Args:
+        session: Database session (will create new background session)
+        streams: List of TorrentStreamData objects to store
+        redis_lock: Optional Redis lock to release after storage
     """
     from utils.lock import release_redis_lock
     from db.database import get_background_session
@@ -3245,8 +3280,19 @@ async def get_event_meta(meta_id: str) -> dict:
     }
 
 
-async def get_event_data_by_id(meta_id: str):
-    """Get event data by ID from Redis"""
+async def get_event_data_by_id(meta_id: str) -> Optional[Any]:
+    """
+    Get event data by ID from Redis cache.
+    
+    Args:
+        meta_id: Event metadata identifier
+        
+    Returns:
+        MediaFusionEventsMetaData object if found, None otherwise
+        
+    Raises:
+        ValueError: If event data is invalid JSON
+    """
     from db.schemas import MediaFusionEventsMetaData
     
     event_key = f"event:{meta_id}"
