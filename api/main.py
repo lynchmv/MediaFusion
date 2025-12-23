@@ -159,7 +159,16 @@ app.mount("/static", StaticFiles(directory="resources"), name="static")
 
 # Keep the existing template-based routes for backward compatibility
 @app.get("/", tags=["home"])
-async def get_home(request: Request):
+async def get_home(request: Request) -> HTMLResponse:
+    """
+    Render the home page.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        HTMLResponse: Rendered home page template
+    """
     return TEMPLATES.TemplateResponse(
         "html/home.html",
         {
@@ -175,12 +184,25 @@ async def get_home(request: Request):
 
 @app.get("/health", tags=["health"])
 @wrappers.exclude_rate_limit
-async def health():
+async def health() -> Dict[str, str]:
+    """
+    Health check endpoint.
+    Used by load balancers and monitoring systems to verify service availability.
+    
+    Returns:
+        Dictionary with status "ok"
+    """
     return {"status": "ok"}
 
 
 @app.get("/favicon.ico")
-async def get_favicon():
+async def get_favicon() -> RedirectResponse:
+    """
+    Serve favicon by redirecting to logo URL.
+    
+    Returns:
+        RedirectResponse: Redirect to logo URL
+    """
     return RedirectResponse(url=settings.logo_url)
 
 
@@ -192,7 +214,25 @@ async def configure(
     user_data: schemas.UserData = Depends(get_user_data),
     kodi_code: str = None,
     secret_str: str = None,
-):
+) -> HTMLResponse:
+    """
+    Render the configuration page.
+    Allows users to configure MediaFusion settings including:
+    - Streaming provider credentials
+    - Catalog selections
+    - Content filters
+    - Language preferences
+    
+    Args:
+        response: FastAPI response object
+        request: FastAPI request object
+        user_data: Decrypted user configuration data
+        kodi_code: Optional 6-digit code for Kodi pairing
+        secret_str: Optional secret string from URL path
+        
+    Returns:
+        HTMLResponse: Rendered configuration page template
+    """
     response.headers.update(const.NO_CACHE_HEADERS)
 
     configured_fields = []
@@ -599,7 +639,24 @@ async def search_meta(
     session: AsyncSession = Depends(get_read_session),
 ) -> public_schemas.Metas:
     """
-    Enhanced search endpoint with caching and efficient text search
+    Search for metadata within a catalog using PostgreSQL full-text search.
+    
+    Supports fuzzy matching and uses cached results for better performance.
+    Results are cached for 5 minutes to reduce database load.
+    
+    Args:
+        request: FastAPI request object
+        catalog_type: Type of catalog to search (movie, series, tv)
+        catalog_id: Catalog identifier
+        search_query: Search query string
+        user_data: User configuration data
+        session: Database session
+        
+    Returns:
+        Metas: List of matching metadata items
+        
+    Raises:
+        ValidationError: If cached data is invalid
     """
     if not search_query.strip():
         return public_schemas.Metas(metas=[])
