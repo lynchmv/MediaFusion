@@ -1093,14 +1093,31 @@ class BaseScraper(abc.ABC):
 
 
 class BackgroundScraperManager:
+    """
+    Manages background scraping queue for movies and series.
+    
+    Uses Redis hash sets to track items that need scraping and a set to track
+    items currently being processed to prevent duplicate work.
+    """
+    
     def __init__(self):
+        """
+        Initialize background scraper manager with Redis keys.
+        
+        Sets up keys for movie queue, series queue, and processing tracking.
+        """
         self.movie_hash_key = "background_search:movies"
         self.series_hash_key = "background_search:series"
         self.processing_set_key = "background_search:processing"
         self.batch_size = 10  # Number of items to process in each batch
 
     async def add_movie_to_queue(self, meta_id: str) -> None:
-        """Add a movie to the background search queue"""
+        """
+        Add a movie to the background search queue.
+        
+        Args:
+            meta_id: Movie metadata ID (IMDb ID or MediaFusion ID)
+        """
         await REDIS_ASYNC_CLIENT.hset(
             self.movie_hash_key,
             meta_id,
@@ -1110,7 +1127,14 @@ class BackgroundScraperManager:
     async def add_series_to_queue(
         self, meta_id: str, season: int, episode: int
     ) -> None:
-        """Add a series episode to the background search queue"""
+        """
+        Add a series episode to the background search queue.
+        
+        Args:
+            meta_id: Series metadata ID (IMDb ID or MediaFusion ID)
+            season: Season number
+            episode: Episode number
+        """
         key = f"{meta_id}:{season}:{episode}"
         await REDIS_ASYNC_CLIENT.hset(
             self.series_hash_key,
@@ -1119,7 +1143,19 @@ class BackgroundScraperManager:
         )
 
     async def get_pending_items(self, item_type: str) -> List[Dict]:
-        """Get items that need to be scraped"""
+        """
+        Get items that need to be scraped.
+        
+        Returns items that haven't been scraped recently (based on
+        background_search_interval_hours) and aren't currently being processed.
+        Limited to batch_size items.
+        
+        Args:
+            item_type: Type of items ("movie" or "series")
+            
+        Returns:
+            List of dictionaries with "key" and "data" fields
+        """
         hash_key = self.movie_hash_key if item_type == "movie" else self.series_hash_key
         cutoff_time = datetime.now() - timedelta(
             hours=settings.background_search_interval_hours
@@ -1147,11 +1183,26 @@ class BackgroundScraperManager:
         return pending_items[: self.batch_size]
 
     async def mark_as_processing(self, item_key: str) -> None:
-        """Mark an item as currently being processed"""
+        """
+        Mark an item as currently being processed.
+        
+        Prevents duplicate processing by multiple workers.
+        
+        Args:
+            item_key: Item key to mark as processing
+        """
         await REDIS_ASYNC_CLIENT.sadd(self.processing_set_key, item_key)
 
     async def mark_as_completed(self, item_key: str, hash_key: str) -> None:
-        """Mark an item as completed and update last scrape time"""
+        """
+        Mark an item as completed and update last scrape time.
+        
+        Updates the last_scrape timestamp and removes from processing set.
+        
+        Args:
+            item_key: Item key that was processed
+            hash_key: Redis hash key (movie_hash_key or series_hash_key)
+        """
         # Update last scrape time
         item_data = await REDIS_ASYNC_CLIENT.hget(hash_key, item_key)
         if item_data:
@@ -1163,18 +1214,37 @@ class BackgroundScraperManager:
         await REDIS_ASYNC_CLIENT.srem(self.processing_set_key, item_key)
 
     async def cleanup_stale_processing(self, max_processing_time: int = 3600) -> None:
-        """Clean up items stuck in processing state"""
+        """
+        Clean up items stuck in processing state.
+        
+        Removes items from processing set that may have been abandoned due to
+        worker crashes or timeouts.
+        
+        Args:
+            max_processing_time: Maximum time in seconds an item should be processing
+        """
         processing_items = await REDIS_ASYNC_CLIENT.smembers(self.processing_set_key)
         for item_key in processing_items:
             await REDIS_ASYNC_CLIENT.srem(self.processing_set_key, item_key)
 
 
 class MaxProcessLimitReached(Exception):
+    """
+    Exception raised when maximum process limit is reached.
+    
+    Used in process_streams to signal that enough streams have been processed.
+    """
     pass
 
 
 class IndexerBaseScraper(BaseScraper, abc.ABC):
-    """Base class for indexer-based scrapers (Prowlarr, Jackett)"""
+    """
+    Base class for indexer-based scrapers (Prowlarr, Jackett).
+    
+    Provides common functionality for scrapers that query multiple indexers.
+    Handles indexer health checking, circuit breakers, chunking, and
+    both IMDb-based and title-based searches.
+    """
 
     MOVIE_SEARCH_QUERY_TEMPLATES = [
         "{title} ({year})",  # Exact match with year
@@ -1219,6 +1289,13 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
     OTHER_CATEGORY_IDS = [8000, 8010, 8020]
 
     def __init__(self, cache_key_prefix: str, base_url: str):
+        """
+        Initialize indexer-based scraper.
+        
+        Args:
+            cache_key_prefix: Prefix for Redis cache keys
+            base_url: Base URL for the indexer API (Prowlarr/Jackett)
+        """
         super().__init__(cache_key_prefix=cache_key_prefix, logger_name=__name__)
         self.base_url = base_url
         self.indexer_status = {}
@@ -1290,7 +1367,20 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
         metadata: MetadataData,
         indexer_chunks: List[List[dict]],
     ) -> AsyncGenerator[TorrentStreamData, None]:
-        """Common movie scraping logic"""
+        """
+        Common movie scraping logic.
+        
+        Searches using IMDb ID first, then falls back to title-based searches
+        if enabled. Adds to background queue if background search is enabled.
+        
+        Args:
+            processed_info_hashes: Set of already processed info hashes
+            metadata: Movie metadata to search for
+            indexer_chunks: List of indexer chunks to search
+            
+        Yields:
+            TorrentStreamData: Streams as they are found
+        """
         search_generators = []
 
         # Add IMDB search for each chunk
@@ -1343,7 +1433,23 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
         episode: int,
         indexer_chunks: List[List[dict]],
     ) -> AsyncGenerator[TorrentStreamData, None]:
-        """Common series scraping logic"""
+        """
+        Common series scraping logic.
+        
+        Searches using IMDb ID first, then falls back to title-based searches
+        if enabled. Filters results by season/episode. Adds to background queue
+        if background search is enabled.
+        
+        Args:
+            processed_info_hashes: Set of already processed info hashes
+            metadata: Series metadata to search for
+            season: Season number
+            episode: Episode number
+            indexer_chunks: List of indexer chunks to search
+            
+        Yields:
+            TorrentStreamData: Streams as they are found
+        """
         search_generators = []
 
         # Add IMDB search for each chunk
@@ -1401,14 +1507,31 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
 
     @abc.abstractmethod
     async def get_healthy_indexers(self) -> List[dict]:
-        """Get list of healthy indexer IDs"""
+        """
+        Get list of healthy indexer IDs.
+        
+        Should filter out indexers that are down or have circuit breakers open.
+        
+        Returns:
+            List of indexer dictionaries with status and capabilities
+        """
         pass
 
     @abc.abstractmethod
     async def fetch_search_results(
         self, params: dict, indexer_ids: List[int], timeout: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """Fetch search results from the indexer"""
+        """
+        Fetch search results from the indexer.
+        
+        Args:
+            params: Search parameters (query, categories, etc.)
+            indexer_ids: List of indexer IDs to query
+            timeout: Optional timeout in seconds
+            
+        Returns:
+            List of search result dictionaries
+        """
         pass
 
     @abc.abstractmethod
@@ -1417,16 +1540,40 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
         video_id: str,
         search_type: Literal["search", "tvsearch", "movie"],
         categories: list[int],
-        search_query: str = None,
+        search_query: Optional[str] = None,
     ) -> dict:
-        """Build search parameters for the indexer"""
+        """
+        Build search parameters for the indexer.
+        
+        Args:
+            video_id: IMDb ID or search query
+            search_type: Type of search ("search", "tvsearch", "movie")
+            categories: List of category IDs to search
+            search_query: Optional text query for title-based searches
+            
+        Returns:
+            Dictionary of search parameters
+        """
         pass
 
     @abc.abstractmethod
     async def parse_indexer_data(
         self, indexer_data: dict, catalog_type: str, parsed_data: dict
     ) -> dict:
-        """Parse indexer-specific data"""
+        """
+        Parse indexer-specific data.
+        
+        Extracts info_hash, announce_list, and other indexer-specific fields
+        from the raw indexer response.
+        
+        Args:
+            indexer_data: Raw data from indexer
+            catalog_type: Catalog type ("movie" or "series")
+            parsed_data: Previously parsed data from title parsing
+            
+        Returns:
+            Dictionary with info_hash, announce_list, and other fields
+        """
         pass
 
     @property
@@ -1503,7 +1650,19 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
         metadata: MetadataData,
         indexers: List[dict],
     ) -> AsyncGenerator[TorrentStreamData, None]:
-        """Scrape movie using IMDB ID"""
+        """
+        Scrape movie using IMDb ID.
+        
+        Uses indexer's movie search with IMDb ID for precise matching.
+        
+        Args:
+            processed_info_hashes: Set of already processed info hashes
+            metadata: Movie metadata with IMDb ID
+            indexers: List of indexers to search
+            
+        Yields:
+            TorrentStreamData: Matching streams
+        """
         async for stream in self.run_scrape_and_parse(
             processed_info_hashes=processed_info_hashes,
             metadata=metadata,
@@ -1522,7 +1681,20 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
         search_query: str,
         indexers: List[dict],
     ) -> AsyncGenerator[TorrentStreamData, None]:
-        """Scrape movie using title search"""
+        """
+        Scrape movie using title-based search.
+        
+        Uses text search query for broader matching when IMDb search fails.
+        
+        Args:
+            processed_info_hashes: Set of already processed info hashes
+            metadata: Movie metadata for validation
+            search_query: Text query (title, title with year, etc.)
+            indexers: List of indexers to search
+            
+        Yields:
+            TorrentStreamData: Matching streams
+        """
         async for stream in self.run_scrape_and_parse(
             processed_info_hashes=processed_info_hashes,
             metadata=metadata,
@@ -1543,7 +1715,21 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
         episode: int,
         indexers: List[dict],
     ) -> AsyncGenerator[TorrentStreamData, None]:
-        """Scrape series using IMDB ID"""
+        """
+        Scrape series using IMDb ID.
+        
+        Uses indexer's TV search with IMDb ID and season/episode for precise matching.
+        
+        Args:
+            processed_info_hashes: Set of already processed info hashes
+            metadata: Series metadata with IMDb ID
+            season: Season number
+            episode: Episode number
+            indexers: List of indexers to search
+            
+        Yields:
+            TorrentStreamData: Matching streams
+        """
         async for stream in self.run_scrape_and_parse(
             processed_info_hashes=processed_info_hashes,
             metadata=metadata,
@@ -1566,7 +1752,22 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
         search_query: str,
         indexers: List[dict],
     ) -> AsyncGenerator[TorrentStreamData, None]:
-        """Scrape series using title search"""
+        """
+        Scrape series using title-based search.
+        
+        Uses text search query with season/episode for broader matching.
+        
+        Args:
+            processed_info_hashes: Set of already processed info hashes
+            metadata: Series metadata for validation
+            season: Season number
+            episode: Episode number
+            search_query: Text query (title SXXEYY, etc.)
+            indexers: List of indexers to search
+            
+        Yields:
+            TorrentStreamData: Matching streams
+        """
         async for stream in self.run_scrape_and_parse(
             processed_info_hashes=processed_info_hashes,
             metadata=metadata,
@@ -1588,7 +1789,21 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
         categories: list[int],
         requires_imdb: bool = False,
     ) -> List[dict]:
-        """Filter indexers based on their capabilities"""
+        """
+        Filter indexers based on their capabilities.
+        
+        Checks if indexers support the required search type, categories, and
+        optionally IMDb ID searches.
+        
+        Args:
+            indexers: List of indexer dictionaries
+            search_type: Type of search ("search", "tvsearch", "movie")
+            categories: List of required category IDs
+            requires_imdb: Whether IMDb ID support is required
+            
+        Returns:
+            Filtered list of indexers that meet all requirements
+        """
         filtered_indexers = []
 
         # Map our search types to indexer search types
@@ -1625,12 +1840,32 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
         categories: list[int],
         catalog_type: str,
         indexers: List[dict],
-        season: int = None,
-        episode: int = None,
-        search_query: str = None,
+        season: Optional[int] = None,
+        episode: Optional[int] = None,
+        search_query: Optional[str] = None,
         requires_imdb: bool = False,
     ) -> AsyncGenerator[TorrentStreamData, None]:
-        """Common method to run scraping and parsing process"""
+        """
+        Common method to run scraping and parsing process.
+        
+        Filters indexers by capability, builds search params, fetches results,
+        and processes streams through process_stream.
+        
+        Args:
+            processed_info_hashes: Set of already processed info hashes
+            metadata: Media metadata to search for
+            search_type: Type of search ("search", "tvsearch", "movie")
+            categories: List of category IDs to search
+            catalog_type: Catalog type ("movie" or "series")
+            indexers: List of indexers to search
+            season: Optional season number (for series)
+            episode: Optional episode number (for series)
+            search_query: Optional text query for title searches
+            requires_imdb: Whether IMDb ID is required
+            
+        Yields:
+            TorrentStreamData: Processed streams
+        """
         # Filter indexers based on capabilities
         filtered_indexers = self.filter_indexers_by_capability(
             indexers, search_type, categories, requires_imdb
