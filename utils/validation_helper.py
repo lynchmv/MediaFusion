@@ -374,9 +374,11 @@ async def validate_service(
     Returns:
         Dictionary with 'status' ('success' or 'error') and optional 'message'
     """
-    invalid_creds_message: str = None,
+    invalid_creds_message: Optional[str] = None,
 ) -> dict:
-    async with httpx.AsyncClient() as client:
+    from utils.http_client import get_shared_client
+    
+    client = get_shared_client()
         try:
             response = await client.get(url, params=params, timeout=10)
             response.raise_for_status()
