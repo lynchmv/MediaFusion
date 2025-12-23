@@ -243,6 +243,48 @@ class ScraperMetrics:
 
 
 class ScraperError(Exception):
+    """
+    Base exception for scraper-related errors.
+    
+    Attributes:
+        message: Error message
+        scraper_name: Name of the scraper that raised the error
+        original_exception: Original exception that caused this error
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        scraper_name: Optional[str] = None,
+        original_exception: Optional[Exception] = None,
+    ):
+        super().__init__(message)
+        self.message = message
+        self.scraper_name = scraper_name
+        self.original_exception = original_exception
+
+
+class ScraperTimeoutError(ScraperError):
+    """Raised when a scraper operation times out."""
+    pass
+
+
+class ScraperHTTPError(ScraperError):
+    """Raised when a scraper encounters an HTTP error."""
+    
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        scraper_name: Optional[str] = None,
+        original_exception: Optional[Exception] = None,
+    ):
+        super().__init__(message, scraper_name, original_exception)
+        self.status_code = status_code
+
+
+class ScraperValidationError(ScraperError):
+    """Raised when scraper data validation fails."""
     pass
 
 
@@ -540,10 +582,26 @@ class BaseScraper(abc.ABC):
             if e.response.status_code == 404 and is_expected_to_fail:
                 return e.response
             self.logger.error(f"HTTP error occurred: {e}")
-            raise ScraperError(f"HTTP error occurred: {e}")
+            raise ScraperHTTPError(
+                f"HTTP error occurred: {e}",
+                status_code=e.response.status_code,
+                scraper_name=self.cache_key_prefix,
+                original_exception=e,
+            )
+        except httpx.TimeoutException as e:
+            self.logger.error(f"Request timeout: {e}")
+            raise ScraperTimeoutError(
+                f"Request timeout: {e}",
+                scraper_name=self.cache_key_prefix,
+                original_exception=e,
+            )
         except httpx.RequestError as e:
             self.logger.error(f"An error occurred while requesting {e.request.url!r}.")
-            raise ScraperError(f"An error occurred while requesting {e.request.url!r}.")
+            raise ScraperError(
+                f"An error occurred while requesting {e.request.url!r}.",
+                scraper_name=self.cache_key_prefix,
+                original_exception=e,
+            )
 
     def validate_response(self, response: Dict[str, Any]) -> bool:
         """
@@ -732,9 +790,15 @@ class BaseScraper(abc.ABC):
         return 10
 
     @staticmethod
-    async def remove_expired_items(scraper_prefix: str, ttl: int = 3600):
+    async def remove_expired_items(scraper_prefix: str, ttl: int = 3600) -> None:
         """
-        Remove expired items from the cache.
+        Remove expired items from the Redis sorted set cache.
+        
+        Uses ZREMRANGEBYSCORE to efficiently remove items older than TTL.
+        
+        Args:
+            scraper_prefix: Redis key prefix for the sorted set
+            ttl: Time to live in seconds (default: 3600)
         """
         current_time = int(time.time())
         await REDIS_ASYNC_CLIENT.zremrangebyscore(scraper_prefix, 0, current_time - ttl)
@@ -778,7 +842,13 @@ class BaseScraper(abc.ABC):
             )
         except httpx.HTTPStatusError as error:
             if error.response.status_code in [429, 500]:
-                raise error
+                # Re-raise rate limit and server errors to trigger retries
+                raise ScraperHTTPError(
+                    f"HTTP Error getting torrent data: {download_url}",
+                    status_code=error.response.status_code,
+                    scraper_name=self.cache_key_prefix,
+                    original_exception=error,
+                )
             self.logger.error(
                 f"HTTP Error getting torrent data: {download_url}, status code: {error.response.status_code}"
             )
@@ -787,10 +857,18 @@ class BaseScraper(abc.ABC):
             self.logger.warning(
                 f"Timeout while getting torrent data for: {download_url}"
             )
-            raise error
+            raise ScraperTimeoutError(
+                f"Timeout while getting torrent data for: {download_url}",
+                scraper_name=self.cache_key_prefix,
+                original_exception=error,
+            )
         except httpx.RequestError as error:
             self.logger.error(f"Request error getting torrent data: {error}")
-            raise error
+            raise ScraperError(
+                f"Request error getting torrent data: {error}",
+                scraper_name=self.cache_key_prefix,
+                original_exception=error,
+            )
         except Exception as e:
             self.logger.exception(f"Error getting torrent data: {e}")
             return None, False
@@ -1000,10 +1078,18 @@ class BaseScraper(abc.ABC):
             self.metrics.record_error("timeout")
             self.logger.warning("Timeout while processing search result")
             return None
+        except ScraperError:
+            # Re-raise scraper-specific errors
+            raise
         except Exception as e:
             self.metrics.record_error("result_processing_error")
             self.logger.exception(f"Error processing search result: {e}")
-            return None
+            # Wrap unexpected errors in ScraperError
+            raise ScraperError(
+                f"Unexpected error processing search result: {e}",
+                scraper_name=self.cache_key_prefix,
+                original_exception=e,
+            ) from e
 
 
 class BackgroundScraperManager:
@@ -1183,9 +1269,15 @@ class IndexerBaseScraper(BaseScraper, abc.ABC):
             self.logger.error(
                 f"Error fetching search results: {e.response.text}, status code: {e.response.status_code}"
             )
+            # Don't re-raise here - allow scraping to continue with other indexers
+        except ScraperError:
+            # Re-raise scraper-specific errors but allow other indexers to continue
+            self.metrics.record_error("scraper_error")
+            raise
         except Exception as e:
             self.metrics.record_error("unexpected_error")
             self.logger.exception(f"An error occurred during scraping: {str(e)}")
+            # Wrap unexpected errors but don't re-raise - allow other indexers to continue
 
         self.logger.info(
             f"Returning {len(results)} scraped streams for {metadata.title}"
