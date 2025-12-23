@@ -72,8 +72,10 @@ async def invalidate_stream_cache(video_id: str, season: Optional[int] = None, e
 
 async def bulk_invalidate_cache(keys: List[str]) -> int:
     """
-    Bulk invalidate multiple cache keys.
-    Uses parallel deletion for better performance.
+    Bulk invalidate multiple cache keys using Redis pipeline.
+    
+    Uses Redis pipeline for efficient bulk deletion when possible.
+    Falls back to parallel deletion for very large batches.
     
     Args:
         keys: List of cache keys to delete
@@ -84,15 +86,34 @@ async def bulk_invalidate_cache(keys: List[str]) -> int:
     if not keys:
         return 0
     
+    # Use pipeline for batches up to 1000 keys (Redis pipeline limit)
+    if len(keys) <= 1000:
+        try:
+            async with REDIS_ASYNC_CLIENT.pipeline() as pipe:
+                for key in keys:
+                    pipe.delete(key)
+                results = await pipe.execute()
+                # Count successful deletions (1 = deleted, 0 = not found)
+                deleted = sum(1 for r in results if r)
+                return deleted
+        except Exception as e:
+            logger.warning(f"Pipeline deletion failed, falling back to parallel: {e}")
+    
+    # Fallback to parallel deletion for large batches or on error
     import asyncio
     
-    # Delete keys in parallel
-    results = await asyncio.gather(*[
-        REDIS_ASYNC_CLIENT.delete(key) for key in keys
-    ], return_exceptions=True)
+    # Delete keys in parallel batches of 100
+    batch_size = 100
+    deleted = 0
     
-    # Count successful deletions
-    deleted = sum(1 for r in results if r and not isinstance(r, Exception))
+    for i in range(0, len(keys), batch_size):
+        batch = keys[i:i + batch_size]
+        results = await asyncio.gather(*[
+            REDIS_ASYNC_CLIENT.delete(key) for key in batch
+        ], return_exceptions=True)
+        
+        # Count successful deletions
+        deleted += sum(1 for r in results if r and not isinstance(r, Exception))
     
     if deleted < len(keys):
         failed = len(keys) - deleted
