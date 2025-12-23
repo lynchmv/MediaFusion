@@ -220,9 +220,10 @@ async def get_redirector_url(url: str, headers: dict) -> str | None:
     Get the final URL after following all redirects.
     """
     try:
-        async with httpx.AsyncClient(proxy=settings.requests_proxy_url) as client:
-            response = await client.head(url, headers=headers, follow_redirects=True)
-            return str(response.url)
+        from utils.http_client import get_shared_proxy_client
+        client = get_shared_proxy_client()
+        response = await client.head(url, headers=headers, follow_redirects=True)
+        return str(response.url)
     except httpx.HTTPError as e:
         return
 
@@ -264,12 +265,13 @@ async def get_mediaflow_proxy_public_ip(mediaflow_config) -> str | None:
         return public_ip.decode()
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                parse.urljoin(mediaflow_config.proxy_url, "/proxy/ip"),
-                params={"api_password": mediaflow_config.api_password},
-                timeout=10,
-            )
+        from utils.http_client import get_shared_client
+        client = get_shared_client()
+        response = await client.get(
+            parse.urljoin(mediaflow_config.proxy_url, "/proxy/ip"),
+            params={"api_password": mediaflow_config.api_password},
+            timeout=10,
+        )
             response.raise_for_status()
             public_ip = response.json().get("ip")
             if public_ip:

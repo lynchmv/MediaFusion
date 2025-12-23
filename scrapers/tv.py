@@ -184,10 +184,11 @@ async def update_tv_posters_in_db(*args, **kwargs):
             logging.info("No TV posters to update.")
             return
 
-        async with httpx.AsyncClient(proxy=settings.requests_proxy_url) as client:
-            response = await client.get(
-                "https://iptv-org.github.io/api/channels.json", timeout=30
-            )
+        from utils.http_client import get_shared_proxy_client
+        client = get_shared_proxy_client()
+        response = await client.get(
+            "https://iptv-org.github.io/api/channels.json", timeout=30
+        )
             iptv_channels = response.json()
 
         iptv_org_channel_data = {}

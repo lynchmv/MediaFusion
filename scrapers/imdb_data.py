@@ -406,9 +406,10 @@ async def get_imdb_data_via_cinemeta(
 ) -> Optional[model.Title]:
     url = f"https://v3-cinemeta.strem.io/meta/{media_type}/{title_id}.json"
     try:
-        async with httpx.AsyncClient(proxy=settings.requests_proxy_url) as client:
-            response = await client.get(
-                url, timeout=10, headers=UA_HEADER, follow_redirects=True
+        from utils.http_client import get_shared_proxy_client
+        client = get_shared_proxy_client()
+        response = await client.get(
+            url, timeout=10, headers=UA_HEADER, follow_redirects=True
             )
             response.raise_for_status()
     except httpx.RequestError as e:

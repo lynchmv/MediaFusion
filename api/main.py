@@ -104,6 +104,8 @@ async def lifespan(_: FastAPI):
             await release_scheduler_lock(scheduler_lock)
 
     await REDIS_ASYNC_CLIENT.aclose()
+    from utils.http_client import close_clients
+    await close_clients()
 
 
 app = FastAPI(lifespan=lifespan)

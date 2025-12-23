@@ -285,10 +285,11 @@ async def init_best_trackers():
     # get the best trackers from https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt
 
     try:
-        async with httpx.AsyncClient(proxy=settings.requests_proxy_url) as client:
-            response = await client.get(
-                "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt",
-                timeout=30,
+        from utils.http_client import get_shared_proxy_client
+        client = get_shared_proxy_client()
+        response = await client.get(
+            "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt",
+            timeout=30,
             )
             if response.status_code == 200:
                 trackers = [tracker for tracker in response.text.split("\n") if tracker]
