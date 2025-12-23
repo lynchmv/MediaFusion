@@ -2015,7 +2015,18 @@ async def update_tv_stream_status(
     is_working: bool,
     test_failure_count: int,
 ) -> None:
-    """Update TV stream working status and failure count"""
+    """
+    Update TV stream working status and failure count.
+    
+    Args:
+        session: Database session
+        stream_id: TV stream identifier
+        is_working: Whether the stream is currently working
+        test_failure_count: Number of consecutive test failures
+        
+    Raises:
+        DatabaseError: If database update fails
+    """
     await session.exec(
         sa_update(TVStream)
         .where(TVStream.id == stream_id)
@@ -2028,7 +2039,18 @@ async def delete_tv_stream(
     session: AsyncSession,
     stream_id: str,
 ) -> None:
-    """Delete a TV stream by ID"""
+    """
+    Delete a TV stream by ID.
+    
+    Also deletes associated namespace links to maintain referential integrity.
+    
+    Args:
+        session: Database session
+        stream_id: TV stream identifier to delete
+        
+    Raises:
+        DatabaseError: If database deletion fails
+    """
     # Delete namespace links first
     await session.exec(
         sa_delete(TVStreamNamespaceLink).where(TVStreamNamespaceLink.tv_stream_id == stream_id)
@@ -2247,7 +2269,22 @@ async def update_metadata(
     media_id: str,
     updates: dict,
 ) -> Optional[BaseMetadata]:
-    """Update metadata fields"""
+    """
+    Update metadata fields for a media item.
+    
+    Updates specified fields and invalidates cache on success.
+    
+    Args:
+        session: Database session
+        media_id: Media identifier to update
+        updates: Dictionary of field names and values to update
+        
+    Returns:
+        Updated BaseMetadata object if found, None otherwise
+        
+    Raises:
+        DatabaseError: If database update fails
+    """
     query = select(BaseMetadata).where(BaseMetadata.id == media_id)
     result = await session.exec(query)
     metadata = result.one_or_none()
