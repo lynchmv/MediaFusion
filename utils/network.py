@@ -302,11 +302,11 @@ async def get_mediaflow_proxy_public_ip(mediaflow_config: Any) -> Optional[str]:
             params={"api_password": mediaflow_config.api_password},
             timeout=10,
         )
-            response.raise_for_status()
-            public_ip = response.json().get("ip")
-            if public_ip:
-                await REDIS_ASYNC_CLIENT.set(cache_key, public_ip, ex=const.CACHE_TTL_PUBLIC_IP)
-                return public_ip
+        response.raise_for_status()
+        public_ip = response.json().get("ip")
+        if public_ip:
+            await REDIS_ASYNC_CLIENT.set(cache_key, public_ip, ex=const.CACHE_TTL_PUBLIC_IP)
+            return public_ip
     except httpx.HTTPStatusError as e:
         logging.error(f"HTTP error occurred: {e}")
     except httpx.TimeoutException as e:
@@ -322,7 +322,20 @@ async def get_mediaflow_proxy_public_ip(mediaflow_config: Any) -> Optional[str]:
 
 async def get_user_public_ip(
     request: Request, user_data: UserData | None = None
-) -> str | None:
+) -> Optional[str]:
+    """
+    Get user's public IP address.
+    
+    Uses MediaFlow proxy IP if configured, otherwise extracts from request headers.
+    Returns None for private IP addresses.
+    
+    Args:
+        request: FastAPI request object
+        user_data: Optional user configuration (for MediaFlow proxy)
+        
+    Returns:
+        Public IP address string, or None if private IP or unavailable
+    """
     # Check if user has mediaflow config
     if (
         user_data
@@ -344,6 +357,15 @@ async def get_user_public_ip(
 def get_request_namespace(request: Request) -> str:
     """
     Extract the namespace from the request URL.
+    
+    Determines namespace based on hostname for multi-tenant support.
+    Caches result in runtime_const.SERVER_NAMESPACE for performance.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        Namespace string (e.g., "mediafusion" or "tenant-{id}")
     """
     if runtime_const.SERVER_NAMESPACE:
         return runtime_const.SERVER_NAMESPACE
