@@ -323,7 +323,19 @@ def encrypt_text(text: str, secret_key: str | bytes) -> str:
 
 
 def decrypt_text(secret_str: str, secret_key: str | bytes) -> str:
-    """Legacy decryption function - kept for backward compatibility"""
+    """
+    Legacy decryption function - kept for backward compatibility.
+    
+    Args:
+        secret_str: Encrypted text string
+        secret_key: Decryption key (string or bytes)
+        
+    Returns:
+        Decrypted text string
+        
+    Raises:
+        ValueError: If decryption fails
+    """
     decoded_data = urlsafe_b64decode(secret_str)
     encrypted_data = zlib.decompress(decoded_data)
     iv = encrypted_data[:16]
