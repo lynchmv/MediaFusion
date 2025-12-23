@@ -5,7 +5,7 @@ import secrets
 import time
 import zlib
 from base64 import urlsafe_b64encode, urlsafe_b64decode
-from typing import Tuple
+from typing import Tuple, Optional
 
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
@@ -44,14 +44,32 @@ class CryptoUtils:
         """Generate Redis storage key with prefix"""
         return f"user_{data_hash}{random_chars}"
 
-    def _generate_random_chars(self, length: int = None) -> str:
-        """Generate random characters of variable length to add entropy"""
+    def _generate_random_chars(self, length: Optional[int] = None) -> str:
+        """
+        Generate random characters of variable length to add entropy.
+        
+        Args:
+            length: Optional fixed length. If None, uses random length between 5-18.
+            
+        Returns:
+            Random URL-safe string of specified or random length
+        """
         if length is None:
             length = secrets.randbelow(14) + 5  # Random length between 5-18
         return secrets.token_urlsafe(length)[:length]
 
     def _compress_and_encrypt(self, data: str) -> Tuple[bytes, bytes]:
-        """Compress and encrypt data, returning both IV and final data"""
+        """
+        Compress and encrypt data using AES-CBC encryption.
+        
+        Args:
+            data: String data to compress and encrypt
+            
+        Returns:
+            Tuple of (IV, encrypted_data) where:
+            - IV: 16-byte initialization vector
+            - encrypted_data: Encrypted and compressed data bytes
+        """
         # First compress the data
         compressed_data = zlib.compress(data.encode("utf-8"))
 
@@ -66,7 +84,19 @@ class CryptoUtils:
         return iv, encrypted_data
 
     def _decrypt_and_decompress(self, iv: bytes, encrypted_data: bytes) -> str:
-        """Decrypt and decompress data"""
+        """
+        Decrypt and decompress data using AES-CBC decryption.
+        
+        Args:
+            iv: 16-byte initialization vector
+            encrypted_data: Encrypted and compressed data bytes
+            
+        Returns:
+            Decrypted and decompressed string data
+            
+        Raises:
+            ValueError: If decryption or decompression fails
+        """
         cipher = AES.new(self.secret_key, AES.MODE_CBC, iv)
         decrypted_data = cipher.decrypt(encrypted_data)
         unpadded_data = unpad(decrypted_data, AES.block_size)
@@ -76,8 +106,20 @@ class CryptoUtils:
         self, user_data: UserData, expire_seconds: int = 2592000
     ) -> str:
         """
-        Process user data with optimized compression and encryption
-        Returns prefixed string indicating storage method used
+        Process user data with optimized compression and encryption.
+        
+        Uses direct storage for small data (< 1000 chars) or Redis for larger data.
+        Returns prefixed string indicating storage method used.
+        
+        Args:
+            user_data: UserData object to encrypt and store
+            expire_seconds: Redis expiration time in seconds (default: 30 days)
+            
+        Returns:
+            Prefixed string: "D-{data}" for direct storage or "R-{hash}{random}" for Redis
+            
+        Raises:
+            ValueError: If encryption or storage fails
         """
         try:
             # Convert user data to JSON
@@ -118,11 +160,19 @@ class CryptoUtils:
 
     async def decrypt_user_data(self, secret_str: str) -> UserData:
         """
-        Decrypt user data from either storage method
+        Decrypt user data from either storage method.
+        
+        Supports both direct storage (D- prefix) and Redis storage (R- prefix).
+        Returns empty UserData if secret_str is empty.
+        
         Args:
             secret_str: Prefixed string containing either direct data or Redis key
+            
         Returns:
-            UserData object
+            UserData: Decrypted user configuration object
+            
+        Raises:
+            ValueError: If decryption fails or data is invalid
         """
         if not secret_str:
             return UserData()
@@ -153,7 +203,20 @@ class CryptoUtils:
             raise ValueError("Invalid user data")
 
     def decode_user_data(self, encoded_user_data: str) -> UserData:
-        """Decode and decrypt user data from URL-safe string"""
+        """
+        Decode and decrypt user data from URL-safe string.
+        
+        Legacy function for backward compatibility.
+        
+        Args:
+            encoded_user_data: URL-safe encoded user data string
+            
+        Returns:
+            UserData: Decoded user configuration object
+            
+        Raises:
+            ValueError: If decoding or validation fails
+        """
         try:
             json_str = from_urlsafe(encoded_user_data)
             return UserData.model_validate_json(json_str)
@@ -161,7 +224,20 @@ class CryptoUtils:
             raise ValueError("Invalid user data")
 
     def encode_user_data(self, user_data: UserData) -> str:
-        """Encode and encrypt user data to URL-safe string"""
+        """
+        Encode and encrypt user data to URL-safe string.
+        
+        Legacy function for backward compatibility.
+        
+        Args:
+            user_data: UserData object to encode
+            
+        Returns:
+            URL-safe encoded string
+            
+        Raises:
+            ValueError: If encoding fails
+        """
         try:
             json_str = user_data.model_dump_json(
                 exclude_none=True,
@@ -175,7 +251,21 @@ class CryptoUtils:
             raise ValueError("Failed to encode user data")
 
     async def retrieve_and_decrypt(self, storage_id: str) -> UserData:
-        """Retrieve and decrypt user data from Redis"""
+        """
+        Retrieve and decrypt user data from Redis.
+        
+        Extracts hash and random chars from storage_id to reconstruct Redis key.
+        Resets expiration to 30 days on access.
+        
+        Args:
+            storage_id: Storage identifier (hash + random chars, 37+ chars)
+            
+        Returns:
+            UserData: Decrypted user configuration object
+            
+        Raises:
+            ValueError: If storage_id is invalid, data not found, or decryption fails
+        """
         if not storage_id or len(storage_id) < 37:
             raise ValueError("Invalid storage ID")
 
@@ -206,7 +296,19 @@ class CryptoUtils:
 
 # Keep existing functions for backward compatibility
 def encrypt_text(text: str, secret_key: str | bytes) -> str:
-    """Legacy encryption function - kept for backward compatibility"""
+    """
+    Legacy encryption function - kept for backward compatibility.
+    
+    Args:
+        text: Text to encrypt
+        secret_key: Encryption key (string or bytes)
+        
+    Returns:
+        Encrypted text as URL-safe string
+        
+    Raises:
+        ValueError: If encryption fails
+    """
     iv = get_random_bytes(16)
     if isinstance(secret_key, str):
         secret_key = secret_key.encode("utf-8")

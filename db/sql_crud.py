@@ -1067,7 +1067,22 @@ async def get_or_create_genre(session: AsyncSession, name: str) -> Genre:
 
 
 async def get_or_create_catalog(session: AsyncSession, name: str) -> Catalog:
-    """Get or create a catalog by name with caching"""
+    """
+    Get or create a catalog by name with Redis caching.
+    
+    Uses cache to avoid database queries for frequently accessed catalogs.
+    Cache TTL is 24 hours.
+    
+    Args:
+        session: Database session
+        name: Catalog name (e.g., "top250", "popular", "trending")
+        
+    Returns:
+        Catalog: Existing or newly created Catalog object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     # Check cache first
     cache_key = f"catalog:{name}"
     cached_id = await REDIS_ASYNC_CLIENT.get(cache_key)
@@ -1144,7 +1159,19 @@ async def get_or_create_genres_batch(
 
 
 async def get_or_create_star(session: AsyncSession, name: str) -> Star:
-    """Get or create a star by name"""
+    """
+    Get or create a star (actor/director) by name.
+    
+    Args:
+        session: Database session
+        name: Star name
+        
+    Returns:
+        Star: Existing or newly created Star object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     query = select(Star).where(Star.name == name)
     result = await session.exec(query)
     star = result.one_or_none()
@@ -1160,7 +1187,19 @@ async def get_or_create_star(session: AsyncSession, name: str) -> Star:
 async def get_or_create_parental_certificate(
     session: AsyncSession, name: str
 ) -> ParentalCertificate:
-    """Get or create a parental certificate by name"""
+    """
+    Get or create a parental certificate (rating) by name.
+    
+    Args:
+        session: Database session
+        name: Certificate name (e.g., "R", "PG-13", "TV-MA")
+        
+    Returns:
+        ParentalCertificate: Existing or newly created certificate object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     query = select(ParentalCertificate).where(ParentalCertificate.name == name)
     result = await session.exec(query)
     cert = result.one_or_none()
@@ -1174,7 +1213,22 @@ async def get_or_create_parental_certificate(
 
 
 async def get_or_create_language(session: AsyncSession, name: str) -> Language:
-    """Get or create a language by name with caching"""
+    """
+    Get or create a language by name with Redis caching.
+    
+    Uses cache to avoid database queries for frequently accessed languages.
+    Cache TTL is 24 hours.
+    
+    Args:
+        session: Database session
+        name: Language name (e.g., "en", "es", "fr")
+        
+    Returns:
+        Language: Existing or newly created Language object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     # Check cache first
     cache_key = f"lang:{name}"
     cached_id = await REDIS_ASYNC_CLIENT.get(cache_key)
@@ -1201,7 +1255,23 @@ async def get_or_create_language(session: AsyncSession, name: str) -> Language:
 
 
 async def get_or_create_announce_url(session: AsyncSession, url: str) -> AnnounceURL:
-    """Get or create an announce URL with caching"""
+    """
+    Get or create an announce URL (tracker) with Redis caching.
+    
+    Uses cache to avoid database queries for frequently accessed trackers.
+    Cache key is truncated to first 50 chars for long URLs.
+    Cache TTL is 24 hours.
+    
+    Args:
+        session: Database session
+        url: Tracker announce URL
+        
+    Returns:
+        AnnounceURL: Existing or newly created AnnounceURL object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     # Check cache first
     cache_key = f"announce:{url[:50]}"  # Truncate long URLs for cache key
     cached_id = await REDIS_ASYNC_CLIENT.get(cache_key)
@@ -1228,7 +1298,21 @@ async def get_or_create_announce_url(session: AsyncSession, url: str) -> Announc
 
 
 async def get_or_create_namespace(session: AsyncSession, name: str) -> Namespace:
-    """Get or create a namespace by name"""
+    """
+    Get or create a namespace by name.
+    
+    Namespaces are used for multi-tenant support and TV stream filtering.
+    
+    Args:
+        session: Database session
+        name: Namespace name (e.g., "mediafusion", "tenant-123")
+        
+    Returns:
+        Namespace: Existing or newly created Namespace object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     query = select(Namespace).where(Namespace.name == name)
     result = await session.exec(query)
     ns = result.one_or_none()
