@@ -407,7 +407,8 @@ async def get_mdblist_meta_list(
         )
         
         result = await session.exec(query)
-        data = result.unique().all()
+        # Process results as iterator to avoid loading all into memory
+        data = list(result.unique())
         
         if not data:
             # Check for missing metadata and trigger background fetch
@@ -416,7 +417,8 @@ async def get_mdblist_meta_list(
                 .where(BaseMetadata.id.in_(imdb_ids))
             )
             existing_result = await session.exec(existing_query)
-            existing_ids = set(existing_result.all())
+            # Use generator to avoid loading all IDs into memory at once
+            existing_ids = {row for row in existing_result}
             missing_ids = list(set(imdb_ids) - existing_ids)
             
             if missing_ids:
