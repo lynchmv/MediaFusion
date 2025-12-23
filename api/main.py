@@ -717,7 +717,25 @@ async def get_meta(
     catalog_type: MediaType,
     meta_id: str,
     session: AsyncSession = Depends(get_read_session),
-) -> schemas.MetaItem:
+) -> public_schemas.MetaItem:
+    """
+    Get detailed metadata for a specific media item.
+    
+    Returns full metadata including episodes for series, or basic info for movies/TV.
+    Raises NotFoundError if metadata is not found.
+    
+    Args:
+        catalog_type: Type of media (movie, series, tv)
+        meta_id: Media identifier (IMDb ID or MediaFusion ID)
+        session: Database session
+        
+    Returns:
+        MetaItem: Complete metadata object
+        
+    Raises:
+        NotFoundError: If metadata is not found
+        DatabaseError: If database query fails
+    """
     try:
         metadata = await sql_crud.get_metadata_by_type(session, catalog_type, meta_id)
         if not metadata:
