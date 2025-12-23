@@ -1,5 +1,6 @@
 from datetime import timedelta
 from functools import wraps
+from typing import Optional, Callable, Any
 
 from dramatiq.rate_limits.backends import RedisBackend
 
@@ -8,13 +9,19 @@ from db.config import settings
 backend = RedisBackend(url=settings.redis_url)
 
 
-def rate_limit(limit: int, window: int, scope: str = None):
+def rate_limit(limit: int, window: int, scope: Optional[str] = None) -> Callable:
     """
     Decorator to set a rate limit on an endpoint.
+    
+    Adds rate limit metadata to the function for middleware processing.
+    
     Args:
-        limit: The number of requests allowed in the time window.
-        window: The time window in seconds.
-        scope: The rate limit scope, e.g., "ip" or "user".
+        limit: The number of requests allowed in the time window
+        window: The time window in seconds
+        scope: Optional rate limit scope (e.g., "ip", "user", "catalog")
+        
+    Returns:
+        Decorated function with rate limit metadata attached
     """
 
     def decorator(func):
