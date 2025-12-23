@@ -3,8 +3,30 @@ from typing import Literal
 from pydantic import model_validator, Field
 from pydantic_settings import BaseSettings
 
+from db.config_models import (
+    CoreConfig,
+    LoggingConfig,
+    DatabaseConfig,
+    ExternalServiceConfig,
+    StreamingProviderConfig,
+    ScraperConfig,
+    SchedulerConfig,
+    FeatureConfig,
+    ConfigSourceConfig,
+    ProwlarrConfig,
+    JackettConfig,
+    BT4GConfig,
+    TorrentioConfig,
+    MediaFusionConfig,
+    ZileanConfig,
+)
+
 
 class Settings(BaseSettings):
+    """
+    Main Settings class that composes domain-specific configurations.
+    Maintains backward compatibility by exposing all fields at the top level.
+    """
     # Core Application Settings
     addon_name: str = "MediaFusion"
     version: str = "1.0.0"
