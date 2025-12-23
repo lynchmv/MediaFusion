@@ -82,6 +82,19 @@ async def validate_image_url(url: str) -> bool:
 async def validate_live_stream_url(
     url: str, behaviour_hint: dict, validate_url: bool = False
 ) -> bool:
+    """
+    Validate a live stream URL by checking accessibility and content type.
+    
+    Uses HEAD request to check if URL is accessible and returns valid IPTV content type.
+    
+    Args:
+        url: Stream URL to validate
+        behaviour_hint: Dictionary containing proxy headers and content type hints
+        validate_url: If True, validate URL format before checking
+        
+    Returns:
+        True if URL is valid and returns acceptable IPTV content type, False otherwise
+    """
     if validate_url and not is_valid_url(url):
         return False
 
@@ -111,7 +124,19 @@ async def validate_live_stream_url(
             return False
 
 
-async def validate_m3u8_or_mpd_url_with_cache(url: str, behaviour_hint: dict):
+async def validate_m3u8_or_mpd_url_with_cache(url: str, behaviour_hint: dict) -> bool:
+    """
+    Validate M3U8 or MPD URL with Redis caching.
+    
+    Caches validation results for 5 minutes to avoid repeated checks.
+    
+    Args:
+        url: M3U8 or MPD URL to validate
+        behaviour_hint: Dictionary containing proxy headers and content type hints
+        
+    Returns:
+        True if URL is valid, False otherwise
+    """
     try:
         cache_key = f"m3u8_url:{url}"
         cache_data = await REDIS_ASYNC_CLIENT.get(cache_key)
