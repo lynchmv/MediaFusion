@@ -2,7 +2,8 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from io import BytesIO
-from typing import Literal, Annotated, Optional
+from typing import Literal, Annotated, Optional, Callable
+from starlette.responses import Response as StarletteResponse
 
 import aiohttp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -139,7 +140,8 @@ app.add_middleware(
 
 # set CORS headers
 @app.middleware("http")
-async def add_cors_header(request: Request, call_next):
+async def add_cors_header(request: Request, call_next: Callable) -> StarletteResponse:
+    """Add CORS headers to all responses."""
     response = await call_next(request)
     response.headers.update(const.CORS_HEADERS)
     if "cache-control" not in response.headers:
@@ -515,6 +517,21 @@ def get_cache_key(
     is_watchlist: bool,
     namespace: str,
 ) -> Optional[str]:
+    """
+    Generate cache key for catalog queries.
+    
+    Args:
+        catalog_type: Type of media catalog
+        catalog_id: Catalog identifier
+        skip: Pagination offset
+        genre: Optional genre filter
+        user_data: User configuration data
+        is_watchlist: Whether this is a watchlist catalog
+        namespace: Request namespace
+        
+    Returns:
+        Cache key string or None if caching should be disabled
+    """
     """Generate cache key for catalog queries"""
     if is_watchlist or catalog_type == MediaType.EVENTS:
         return None
@@ -536,6 +553,19 @@ async def get_search_cache_key(
     user_data: UserData,
     namespace: str,
 ) -> str:
+    """
+    Generate cache key for search results.
+    
+    Args:
+        catalog_type: Type of media catalog
+        catalog_id: Catalog identifier
+        search_query: Search query string
+        user_data: User configuration data
+        namespace: Request namespace
+        
+    Returns:
+        Cache key string
+    """
     """Generate cache key for search results"""
     key_parts = [catalog_type.value, catalog_id, search_query]
     if catalog_type in [MediaType.MOVIE, MediaType.SERIES]:
@@ -900,7 +930,17 @@ async def encrypt_user_data(
     return {"status": "success", "encrypted_str": encrypted_str}
 
 
-def raise_poster_error(meta_id: str, error_message: str):
+def raise_poster_error(meta_id: str, error_message: str) -> RedirectResponse | None:
+    """
+    Raise an error for poster generation failures.
+    
+    Args:
+        meta_id: Media identifier
+        error_message: Error message to include
+        
+    Returns:
+        RedirectResponse for IMDb IDs, raises NotFoundError otherwise
+    """
     if meta_id.startswith("tt"):
         # Fall back to Cinemeta poster
         return RedirectResponse(
