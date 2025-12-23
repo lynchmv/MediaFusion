@@ -150,8 +150,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if is_exclude:
             return await call_next(request)
 
-        limit = getattr(endpoint, "limit", 50)  # Default rate limit
-        window = getattr(endpoint, "window", 60)
+        limit = getattr(endpoint, "limit", const.RATE_LIMIT_DEFAULT_LIMIT)
+        window = getattr(endpoint, "window", const.RATE_LIMIT_DEFAULT_WINDOW)
         scope = getattr(endpoint, "scope", "default")  # Default scope
 
         ip = get_client_ip(request)

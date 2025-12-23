@@ -138,6 +138,20 @@ SUPPORTED_RESOLUTIONS = set(RESOLUTIONS)
 
 DEBRID_SERVER_TIMEOUT = 15
 
+# Rate Limiting Constants (requests per time window in seconds)
+RATE_LIMIT_DEFAULT_LIMIT = 50  # Default requests per window
+RATE_LIMIT_DEFAULT_WINDOW = 60  # Default window in seconds
+RATE_LIMIT_CATALOG_LIMIT = 150  # Catalog endpoint: 150 requests
+RATE_LIMIT_CATALOG_WINDOW = 300  # Catalog endpoint: per 5 minutes
+RATE_LIMIT_STREAM_LIMIT = 20  # Stream endpoint: 20 requests
+RATE_LIMIT_STREAM_WINDOW = 3600  # Stream endpoint: per hour
+RATE_LIMIT_USER_DATA_LIMIT = 30  # User data endpoint: 30 requests
+RATE_LIMIT_USER_DATA_WINDOW = 300  # User data endpoint: per 5 minutes
+
+# Cache TTL Constants (in seconds)
+CACHE_TTL_SEARCH_RESULTS = 300  # 5 minutes for search results
+CACHE_TTL_PUBLIC_IP = 300  # 5 minutes for public IP cache
+
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",

@@ -12,7 +12,7 @@ from fastapi.requests import Request
 from db.config import settings
 from db.redis_database import REDIS_ASYNC_CLIENT
 from db.schemas import UserData
-from utils import crypto
+from utils import crypto, const
 from utils.crypto import encrypt_data
 from utils import runtime_const
 
@@ -260,7 +260,7 @@ async def get_mediaflow_proxy_public_ip(mediaflow_config) -> str | None:
         f"{mediaflow_config.proxy_url}:{mediaflow_config.api_password}",
         full_hash=True,
     )
-    if public_ip := await REDIS_ASYNC_CLIENT.getex(cache_key, ex=300):
+    if public_ip := await REDIS_ASYNC_CLIENT.getex(cache_key, ex=const.CACHE_TTL_PUBLIC_IP):
         return public_ip.decode()
 
     try:
@@ -273,7 +273,7 @@ async def get_mediaflow_proxy_public_ip(mediaflow_config) -> str | None:
             response.raise_for_status()
             public_ip = response.json().get("ip")
             if public_ip:
-                await REDIS_ASYNC_CLIENT.set(cache_key, public_ip, ex=300)
+                await REDIS_ASYNC_CLIENT.set(cache_key, public_ip, ex=const.CACHE_TTL_PUBLIC_IP)
                 return public_ip
     except httpx.HTTPStatusError as e:
         logging.error(f"HTTP error occurred: {e}")

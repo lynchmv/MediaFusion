@@ -350,7 +350,7 @@ async def get_manifest(
     tags=["catalog"],
 )
 @wrappers.auth_required
-@wrappers.rate_limit(150, 300, "catalog")
+@wrappers.rate_limit(const.RATE_LIMIT_CATALOG_LIMIT, const.RATE_LIMIT_CATALOG_WINDOW, "catalog")
 async def get_catalog(
     response: Response,
     request: Request,
@@ -421,7 +421,7 @@ async def get_catalog(
                     catalog_type=catalog_type.value,
                     genre=genre,
                     skip=skip,
-                    limit=50,
+                    limit=const.RATE_LIMIT_DEFAULT_LIMIT,
                 )
                 metas = public_schemas.Metas(metas=meta_list)
                 # Cache result if applicable
@@ -566,11 +566,11 @@ async def search_meta(
         namespace=namespace,
     )
 
-    # Cache the results (5 minutes for search results)
+    # Cache the results
     await REDIS_ASYNC_CLIENT.set(
         cache_key,
         metas.model_dump_json(exclude_none=True),
-        ex=300,  # 5 minutes cache
+        ex=const.CACHE_TTL_SEARCH_RESULTS,
     )
 
     return await update_rpdb_posters(metas, user_data, catalog_type)
@@ -662,7 +662,7 @@ async def get_meta(
     tags=["stream"],
 )
 @wrappers.auth_required
-@wrappers.rate_limit(20, 60 * 60, "stream")
+@wrappers.rate_limit(const.RATE_LIMIT_STREAM_LIMIT, const.RATE_LIMIT_STREAM_WINDOW, "stream")
 async def get_streams(
     catalog_type: Literal["movie", "series", "tv", "events"],
     video_id: str,
@@ -750,7 +750,7 @@ async def get_streams(
 
 @app.post("/encrypt-user-data", tags=["user_data"])
 @app.post("/encrypt-user-data/{existing_secret_str}", tags=["user_data"])
-@wrappers.rate_limit(30, 60 * 5, "user_data")
+@wrappers.rate_limit(const.RATE_LIMIT_USER_DATA_LIMIT, const.RATE_LIMIT_USER_DATA_WINDOW, "user_data")
 async def encrypt_user_data(
     user_data: schemas.UserData,
     request: Request,
