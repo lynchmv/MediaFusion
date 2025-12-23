@@ -926,7 +926,18 @@ async def get_cached_torrent_streams(
 
 
 async def get_or_create_genre(session: AsyncSession, name: str) -> Genre:
-    """Get or create a genre by name"""
+    """Get or create a genre by name with caching"""
+    # Check cache first
+    cache_key = f"genre:{name}"
+    cached_id = await REDIS_ASYNC_CLIENT.get(cache_key)
+    if cached_id:
+        query = select(Genre).where(Genre.id == int(cached_id))
+        result = await session.exec(query)
+        genre = result.one_or_none()
+        if genre:
+            return genre
+    
+    # Query database
     query = select(Genre).where(Genre.name == name)
     result = await session.exec(query)
     genre = result.one_or_none()
@@ -935,7 +946,10 @@ async def get_or_create_genre(session: AsyncSession, name: str) -> Genre:
         genre = Genre(name=name)
         session.add(genre)
         await session.flush()
-
+    
+    # Cache the genre ID
+    await REDIS_ASYNC_CLIENT.set(cache_key, str(genre.id), ex=86400)  # 24 hours
+    
     return genre
 
 
@@ -964,6 +978,52 @@ async def get_or_create_catalog(session: AsyncSession, name: str) -> Catalog:
     await REDIS_ASYNC_CLIENT.set(cache_key, str(catalog.id), ex=86400)  # 24h
 
     return catalog
+
+
+async def get_or_create_genres_batch(
+    session: AsyncSession, names: List[str]
+) -> Dict[str, Genre]:
+    """
+    Get or create multiple genres in a single batch operation.
+    Reduces N+1 queries when processing multiple genres.
+    
+    Args:
+        session: Database session
+        names: List of genre names
+        
+    Returns:
+        Dictionary mapping genre names to Genre objects
+    """
+    if not names:
+        return {}
+    
+    # Check cache for all genres
+    cache_keys = [f"genre:{name}" for name in names]
+    cached_ids = await REDIS_ASYNC_CLIENT.mget(cache_keys) if hasattr(REDIS_ASYNC_CLIENT, 'mget') else [
+        await REDIS_ASYNC_CLIENT.get(key) for key in cache_keys
+    ]
+    
+    # Query existing genres from database
+    query = select(Genre).where(Genre.name.in_(names))
+    result = await session.exec(query)
+    existing_genres = {genre.name: genre for genre in result.all()}
+    
+    # Create missing genres
+    missing_names = [name for name in names if name not in existing_genres]
+    new_genres = []
+    for name in missing_names:
+        genre = Genre(name=name)
+        session.add(genre)
+        new_genres.append(genre)
+    
+    if new_genres:
+        await session.flush()
+        # Cache new genres
+        for genre in new_genres:
+            await REDIS_ASYNC_CLIENT.set(f"genre:{genre.name}", str(genre.id), ex=86400)
+        existing_genres.update({genre.name: genre for genre in new_genres})
+    
+    return existing_genres
 
 
 async def get_or_create_star(session: AsyncSession, name: str) -> Star:
