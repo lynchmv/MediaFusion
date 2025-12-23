@@ -65,11 +65,10 @@ from utils.exceptions import (
     AuthenticationError,
 )
 
-logging.basicConfig(
-    format="%(levelname)s::%(asctime)s::%(pathname)s::%(lineno)d - %(message)s",
-    datefmt="%d-%b-%y %H:%M:%S",
-    level=settings.logging_level,
-)
+from utils.logging_config import setup_logging
+
+# Setup structured logging
+setup_logging()
 
 
 @asynccontextmanager

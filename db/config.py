@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     secret_key: str = Field(..., max_length=32, min_length=32)
     api_password: str
     logging_level: str = "INFO"
+    logging_format: Literal["structured", "json"] = "structured"
     logo_url: str = (
         "https://raw.githubusercontent.com/mhdzumair/MediaFusion/main/resources/images/mediafusion_logo.png"
     )
