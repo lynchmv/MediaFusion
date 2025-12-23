@@ -428,13 +428,34 @@ async def get_catalog(
     catalog_type: MediaType,
     catalog_id: str,
     skip: int = 0,
-    genre: str = None,
+    genre: Optional[str] = None,
     user_data: UserData = Depends(get_user_data),
     session: AsyncSession = Depends(get_read_session),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ) -> public_schemas.Metas:
     """
-    Enhanced catalog endpoint with support for watchlists and external services
+    Get catalog metadata list with filtering and pagination.
+    
+    Supports watchlist catalogs, genre filtering, and user content preferences.
+    Applies rate limiting and authentication.
+    
+    Args:
+        response: FastAPI response object
+        request: FastAPI request object
+        catalog_type: Type of catalog (movie, series, tv)
+        catalog_id: Catalog identifier
+        skip: Number of items to skip (pagination offset)
+        genre: Optional genre filter
+        user_data: User configuration data
+        session: Database session
+        background_tasks: Background tasks for async operations
+        
+    Returns:
+        Metas: List of metadata items matching filters
+        
+    Raises:
+        NotFoundError: If catalog not found
+        DatabaseError: If database query fails
     """
     is_watchlist_catalog = user_data.streaming_provider and catalog_id.startswith(
         user_data.streaming_provider.service
