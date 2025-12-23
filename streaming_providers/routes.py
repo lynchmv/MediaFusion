@@ -1,7 +1,7 @@
 import logging
 from os import path
 from os.path import basename
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import (
     Request,
@@ -46,9 +46,25 @@ URL_CACHE_EXP = 3600
 router = APIRouter()
 
 
-def generate_cache_key(user_ip, secret_str, info_hash, season, episode):
+def generate_cache_key(
+    user_ip: str,
+    secret_str: str,
+    info_hash: str,
+    season: Optional[int],
+    episode: Optional[int],
+) -> str:
     """
-    Generates a cache key based on user IP, secret string, info hash, season, and episode.
+    Generate a cache key for streaming provider URLs.
+    
+    Args:
+        user_ip: User's public IP address
+        secret_str: User's secret string (encrypted config)
+        info_hash: Torrent info hash
+        season: Optional season number
+        episode: Optional episode number
+        
+    Returns:
+        Cache key string (hashed for security)
     """
     return "streaming_provider_" + crypto.get_text_hash(
         f"{user_ip}_{secret_str}_{info_hash}_{season}_{episode}", full_hash=True
@@ -56,10 +72,22 @@ def generate_cache_key(user_ip, secret_str, info_hash, season, episode):
 
 
 async def get_cached_stream_url_and_redirect(
-    cached_stream_url_key, user_data, response
-):
+    cached_stream_url_key: str,
+    user_data: schemas.UserData,
+    response: Response,
+) -> Optional[RedirectResponse]:
     """
-    Checks for cached stream URL and returns a RedirectResponse if available.
+    Check for cached stream URL and return a RedirectResponse if available.
+    
+    Handles MediaFlow proxy encoding if configured.
+    
+    Args:
+        cached_stream_url_key: Redis cache key for the stream URL
+        user_data: User configuration data
+        response: FastAPI response object
+        
+    Returns:
+        RedirectResponse if cached URL exists, None otherwise
     """
     if cached_stream_url := await get_cached_stream_url(cached_stream_url_key):
         if (
@@ -89,10 +117,21 @@ async def get_cached_stream_url_and_redirect(
     return None
 
 
-async def fetch_stream_or_404(info_hash):
+async def fetch_stream_or_404(info_hash: str) -> TorrentStreamData:
     """
-    Fetches stream by info hash, raises a 404 error if not found.
-    Returns TorrentStreamData (Pydantic model) to avoid lazy loading issues.
+    Fetch stream by info hash, raise 404 error if not found.
+    
+    Returns TorrentStreamData (Pydantic model) to avoid lazy loading issues
+    when used outside database session context.
+    
+    Args:
+        info_hash: Torrent info hash
+        
+    Returns:
+        TorrentStreamData: Stream data as Pydantic model
+        
+    Raises:
+        HTTPException: 404 if stream not found
     """    
     async for session in get_read_session():
         stream = await sql_crud.get_stream_by_info_hash(session, info_hash, load_relations=True)
