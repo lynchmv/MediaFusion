@@ -1024,7 +1024,22 @@ async def get_cached_torrent_streams(
 
 
 async def get_or_create_genre(session: AsyncSession, name: str) -> Genre:
-    """Get or create a genre by name with caching"""
+    """
+    Get or create a genre by name with Redis caching.
+    
+    Uses cache to avoid database queries for frequently accessed genres.
+    Cache TTL is 24 hours.
+    
+    Args:
+        session: Database session
+        name: Genre name
+        
+    Returns:
+        Genre: Existing or newly created Genre object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     # Check cache first
     cache_key = f"genre:{name}"
     cached_id = await REDIS_ASYNC_CLIENT.get(cache_key)

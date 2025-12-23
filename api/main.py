@@ -933,8 +933,26 @@ async def get_streams(
 async def encrypt_user_data(
     user_data: schemas.UserData,
     request: Request,
-    existing_secret_str: str | None = None,
-):
+    existing_secret_str: Optional[str] = None,
+) -> dict:
+    """
+    Encrypt and store user configuration data.
+    
+    Validates all provider credentials and configuration before encryption.
+    Returns encrypted secret string for use in API requests.
+    
+    Args:
+        user_data: User configuration data to encrypt
+        request: FastAPI request object
+        existing_secret_str: Optional existing secret string to update
+        
+    Returns:
+        Dictionary with 'secret_str' (encrypted configuration) and validation results
+        
+    Raises:
+        ValidationError: If configuration validation fails
+        AuthenticationError: If API password is invalid
+    """
     async def _validate_all_config() -> dict:
         if "p2p" in settings.disabled_providers and not user_data.streaming_provider:
             return {
