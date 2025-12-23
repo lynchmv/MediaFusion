@@ -844,12 +844,37 @@ async def get_streams(
     response: Response,
     request: Request,
     secret_str: str = Depends(get_secret_str),
-    season: int = None,
-    episode: int = None,
+    season: Optional[int] = None,
+    episode: Optional[int] = None,
     user_data: schemas.UserData = Depends(get_user_data),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     session: AsyncSession = Depends(get_read_session),
-):
+) -> schemas.Streams:
+    """
+    Get available streams for a media item.
+    
+    Supports movies, series (with season/episode), TV channels, and events.
+    Returns filtered streams based on user preferences and streaming provider.
+    
+    Args:
+        catalog_type: Type of media (movie, series, tv, events)
+        video_id: Media identifier (IMDb ID or MediaFusion ID)
+        response: FastAPI response object
+        request: FastAPI request object
+        secret_str: User's secret string for authentication
+        season: Optional season number (for series)
+        episode: Optional episode number (for series)
+        user_data: User configuration data
+        background_tasks: Background tasks for async operations
+        session: Database session
+        
+    Returns:
+        Streams: Dictionary containing list of available streams
+        
+    Raises:
+        NotFoundError: If media item not found
+        DatabaseError: If database query fails
+    """
     if "p2p" in settings.disabled_providers and not user_data.streaming_provider:
         return {"streams": []}
 

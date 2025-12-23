@@ -98,12 +98,14 @@ async def validate_live_stream_url(
     if validate_url and not is_valid_url(url):
         return False
 
+    from utils.http_client import get_shared_proxy_client
+    
     headers = behaviour_hint.get("proxyHeaders", {}).get("request", {})
-    async with httpx.AsyncClient(proxy=settings.requests_proxy_url) as client:
-        try:
-            response = await client.head(
-                url, timeout=10, headers=headers, follow_redirects=True
-            )
+    client = get_shared_proxy_client()
+    try:
+        response = await client.head(
+            url, timeout=10, headers=headers, follow_redirects=True
+        )
             response.raise_for_status()
             content_type = (
                 behaviour_hint.get("proxyHeaders", {})
@@ -156,14 +158,25 @@ class ValidationError(Exception):
 
 
 async def validate_yt_id(yt_id: str) -> bool:
+    """
+    Validate a YouTube video ID by checking if thumbnail exists.
+    
+    Args:
+        yt_id: YouTube video ID to validate
+        
+    Returns:
+        True if YouTube ID is valid (thumbnail exists), False otherwise
+    """
+    from utils.http_client import get_shared_client
+    
     image_url = f"https://img.youtube.com/vi/{yt_id}/mqdefault.jpg"
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.head(image_url, timeout=10, follow_redirects=True)
-            response.raise_for_status()
-            return response.status_code == 200
-        except (httpx.HTTPStatusError, httpx.TimeoutException, Exception):
-            return False
+    client = get_shared_client()
+    try:
+        response = await client.head(image_url, timeout=10, follow_redirects=True)
+        response.raise_for_status()
+        return response.status_code == 200
+    except (httpx.HTTPStatusError, httpx.TimeoutException, Exception):
+        return False
 
 
 async def validate_tv_metadata(metadata: schemas.TVMetaData) -> list[schemas.TVStreams]:
