@@ -3,7 +3,7 @@ import json
 import logging
 from abc import ABC
 from datetime import datetime
-from typing import Optional, List, TypeVar, Generic, Type, Sequence
+from typing import Optional, List, TypeVar, Generic, Type, Sequence, Any
 
 import pytz
 from fastapi import BackgroundTasks
@@ -1328,7 +1328,19 @@ async def get_or_create_namespace(session: AsyncSession, name: str) -> Namespace
 async def get_existing_metadata(
     session: AsyncSession, metadata: dict
 ) -> Optional[BaseMetadata]:
-    """Get existing metadata by ID or title/year"""
+    """
+    Get existing metadata by ID or title/year combination.
+    
+    First tries to find by ID, then falls back to title/year lookup.
+    Useful for checking if metadata already exists before creating new records.
+    
+    Args:
+        session: Database session
+        metadata: Dictionary containing 'id', 'title', and/or 'year' fields
+        
+    Returns:
+        BaseMetadata: Existing metadata if found, None otherwise
+    """
     # Try by ID first
     if metadata.get("id"):
         query = select(BaseMetadata).where(BaseMetadata.id == metadata["id"])
@@ -1354,7 +1366,23 @@ async def save_base_metadata(
     metadata: dict,
     media_type: MediaType,
 ) -> BaseMetadata:
-    """Save or update base metadata"""
+    """
+    Save or update base metadata in the database.
+    
+    Creates or updates common metadata fields shared across all media types.
+    Also handles related entities: genres, catalogs, and aka titles.
+    
+    Args:
+        session: Database session
+        metadata: Dictionary containing base metadata fields
+        media_type: Type of media (movie, series, tv)
+        
+    Returns:
+        BaseMetadata: Saved or updated BaseMetadata object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     base_data = BaseMetadata(
         id=metadata["id"],
         type=media_type,
@@ -3258,7 +3286,18 @@ async def get_events_meta_list(session: AsyncSession, genre: str = None, skip: i
 
 
 async def get_event_meta(meta_id: str) -> dict:
-    """Get event metadata by ID from Redis"""
+    """
+    Get event metadata by ID from Redis cache.
+    
+    Args:
+        meta_id: Event metadata identifier
+        
+    Returns:
+        Dictionary containing event metadata, empty dict if not found
+        
+    Raises:
+        ValueError: If event data is invalid JSON
+    """
     from scrapers.dlhd import dlhd_schedule_service
     from db.schemas import MediaFusionEventsMetaData
     
