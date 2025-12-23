@@ -33,7 +33,24 @@ async def filter_and_sort_streams(
     user_data: UserData,
     stremio_video_id: str,
     user_ip: str | None = None,
-) -> tuple[list[TorrentStreamData], dict]:
+) -> tuple[list[TorrentStreamData], dict[str, int]]:
+    """
+    Filter and sort torrent streams based on user preferences.
+    
+    Applies resolution, quality, language, and size filters.
+    Sorts streams according to user's sorting priority.
+    
+    Args:
+        streams: List of torrent stream data to filter
+        user_data: User configuration with filter preferences
+        stremio_video_id: Stremio video identifier
+        user_ip: Optional user IP address for provider operations
+        
+    Returns:
+        Tuple of (filtered_streams, filtered_reasons) where:
+        - filtered_streams: List of streams that passed filters
+        - filtered_reasons: Dictionary counting why streams were filtered
+    """
     # Convert to sets for faster lookups
     selected_resolutions_set = set(user_data.selected_resolutions)
     quality_filter_set = set(
@@ -624,7 +641,20 @@ async def fetch_downloaded_info_hashes(
     return []
 
 
-async def generate_manifest(user_data: UserData, genres: dict) -> dict:
+async def generate_manifest(user_data: UserData, genres: dict[str, list[str]]) -> dict[str, Any]:
+    """
+    Generate Stremio manifest JSON based on user configuration.
+    
+    Creates catalog definitions, resource definitions, and streaming provider
+    information based on user preferences.
+    
+    Args:
+        user_data: User configuration data
+        genres: Dictionary mapping catalog types to genre lists
+        
+    Returns:
+        Dictionary containing Stremio manifest structure
+    """
     streaming_provider_name = None
     streaming_provider_short_name = None
     enable_watchlist_catalogs = False

@@ -215,9 +215,18 @@ async def batch_process_with_circuit_breaker(
     logging.info(f"Processed {processed_count} items out of {len(data)} total items.")
 
 
-async def get_redirector_url(url: str, headers: dict) -> str | None:
+async def get_redirector_url(url: str, headers: dict[str, str]) -> Optional[str]:
     """
     Get the final URL after following all redirects.
+    
+    Uses HEAD request to follow redirects without downloading content.
+    
+    Args:
+        url: Initial URL that may redirect
+        headers: HTTP headers to include in request
+        
+    Returns:
+        Final URL after redirects, or None if request fails
     """
     try:
         from utils.http_client import get_shared_proxy_client
@@ -228,9 +237,18 @@ async def get_redirector_url(url: str, headers: dict) -> str | None:
         return
 
 
-def get_client_ip(request: Request) -> str | None:
+def get_client_ip(request: Request) -> str:
     """
-    Extract the client's real IP address from the request headers or fallback to the client host.
+    Extract the client's real IP address from request headers.
+    
+    Checks X-Forwarded-For and X-Real-IP headers for proxy/load balancer scenarios.
+    Falls back to direct client host if headers are not present.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        Client IP address as string (defaults to "127.0.0.1" if unavailable)
     """
     x_forwarded_for = request.headers.get("X-Forwarded-For")
     if x_forwarded_for:
@@ -245,7 +263,19 @@ def get_client_ip(request: Request) -> str | None:
     return request.client.host if request.client else "127.0.0.1"
 
 
-async def get_mediaflow_proxy_public_ip(mediaflow_config) -> str | None:
+async def get_mediaflow_proxy_public_ip(mediaflow_config: Any) -> Optional[str]:
+    """
+    Get public IP address through MediaFlow proxy.
+    
+    Uses cached IP address to avoid repeated proxy requests.
+    Cache TTL is 5 minutes (300 seconds).
+    
+    Args:
+        mediaflow_config: MediaFlow proxy configuration object
+        
+    Returns:
+        Public IP address string, or None if request fails
+    """
     """
     Get the public IP address of the MediaFlow proxy server.
     """
