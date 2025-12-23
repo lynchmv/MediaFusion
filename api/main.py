@@ -582,14 +582,14 @@ async def search_meta(
     # Try to get from cache
     cached_data = await REDIS_ASYNC_CLIENT.get(cache_key)
     if cached_data:
-            try:
-                metas = public_schemas.Metas.model_validate_json(cached_data)
-                return await update_rpdb_posters(metas, user_data, catalog_type)
-            except ValidationError as e:
-                logging.warning(
-                    f"Invalid cached search data for query '{search_query}', clearing cache: {e}"
-                )
-                await REDIS_ASYNC_CLIENT.delete(cache_key)
+        try:
+            metas = public_schemas.Metas.model_validate_json(cached_data)
+            return await update_rpdb_posters(metas, user_data, catalog_type)
+        except ValidationError as e:
+            logging.warning(
+                f"Invalid cached search data for query '{search_query}', clearing cache: {e}"
+            )
+            await REDIS_ASYNC_CLIENT.delete(cache_key)
 
     # Perform search
     metas = await sql_crud.search_metadata(
