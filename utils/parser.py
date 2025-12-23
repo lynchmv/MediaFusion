@@ -260,11 +260,29 @@ async def parse_stream_data(
     streams: list[TorrentStreamData],
     user_data: UserData,
     secret_str: str,
-    season: int = None,
-    episode: int = None,
-    user_ip: str | None = None,
+    season: Optional[int] = None,
+    episode: Optional[int] = None,
+    user_ip: Optional[str] = None,
     is_series: bool = False,
 ) -> list[Stream]:
+    """
+    Parse and format torrent streams into Stremio-compatible Stream objects.
+    
+    Filters, sorts, and converts torrent streams based on user preferences.
+    Handles streaming provider integration, URL generation, and exception streams.
+    
+    Args:
+        streams: List of torrent stream data to parse
+        user_data: User configuration with preferences
+        secret_str: User's secret string for authentication
+        season: Optional season number for series
+        episode: Optional episode number for series
+        user_ip: Optional user IP address for provider operations
+        is_series: Whether this is a series (affects video ID format)
+        
+    Returns:
+        List of Stream objects ready for Stremio consumption
+    """
     if not streams:
         return []
 
@@ -612,6 +630,20 @@ def get_proxy_url(stream: TVStreams, mediaflow_config) -> str:
 def create_exception_stream(
     addon_name: str, description: str, exc_file_name: str
 ) -> Stream:
+    """
+    Create an exception/error stream for Stremio.
+    
+    Used to display error messages, warnings, or filtered stream notifications
+    to users when no valid streams are available.
+    
+    Args:
+        addon_name: Name of the addon (e.g., "MediaFusion")
+        description: Error/warning message to display
+        exc_file_name: Filename for the exception video (e.g., "no_streams.mp4")
+        
+    Returns:
+        Stream object representing the exception/error message
+    """
     return Stream(
         name=addon_name,
         description=description,
