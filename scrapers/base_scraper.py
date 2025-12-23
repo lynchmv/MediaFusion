@@ -265,27 +265,54 @@ class BaseScraper(abc.ABC):
     # fmt: on
 
     def __init__(self, cache_key_prefix: str, logger_name: str):
+        """
+        Initialize base scraper.
+        
+        Args:
+            cache_key_prefix: Prefix for Redis cache keys
+            logger_name: Name for the logger instance
+        """
         self.logger = logging.getLogger(logger_name)
-        self.http_client = httpx.AsyncClient(timeout=30)
+        from utils.http_client import get_shared_proxy_client
+        self.http_client = get_shared_proxy_client()
         self.cache_key_prefix = cache_key_prefix
         self.metrics = ScraperMetrics(cache_key_prefix)
 
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.http_client.aclose()
+    async def __aexit__(self, exc_type: Optional[type], exc_val: Optional[Exception], exc_tb: Optional[Any]):
+        """
+        Cleanup context manager.
+        
+        Note: Shared HTTP client is not closed here as it's reused across instances.
+        """
+        # Don't close shared client - it's reused
+        pass
 
     async def scrape_and_parse(
         self,
         user_data: UserData,
         metadata: MetadataData,
         catalog_type: str,
-        season: int = None,
-        episode: int = None,
-    ) -> list[TorrentStreamData] | list | None:
+        season: Optional[int] = None,
+        episode: Optional[int] = None,
+    ) -> List[TorrentStreamData]:
         """
         Scrape data and parse it into TorrentStreamData objects.
+        
+        This is the main entry point for scraping operations. It handles metrics
+        collection, error handling, and delegates to the concrete implementation.
+        
+        Args:
+            user_data: User configuration data
+            metadata: Media metadata to scrape for
+            catalog_type: Type of catalog (movie, series, tv)
+            season: Optional season number (for series)
+            episode: Optional episode number (for series)
+            
+        Returns:
+            List of TorrentStreamData objects, empty list on error
         """
         self.metrics.start()
         self.metrics.meta_data = metadata
@@ -311,14 +338,31 @@ class BaseScraper(abc.ABC):
     async def process_streams(
         self,
         *stream_generators: AsyncGenerator[TorrentStreamData, None],
-        max_process: int = None,
-        max_process_time: int = None,
-        catalog_type: str = None,
-        season: int = None,
-        episode: int = None,
+        max_process: Optional[int] = None,
+        max_process_time: Optional[int] = None,
+        catalog_type: Optional[str] = None,
+        season: Optional[int] = None,
+        episode: Optional[int] = None,
     ) -> AsyncGenerator[TorrentStreamData, None]:
         """
         Process streams from multiple generators and yield them as they become available.
+        
+        Uses asyncio queues and task groups to process multiple stream generators
+        concurrently. Deduplicates streams by info hash and applies limits.
+        
+        Args:
+            *stream_generators: One or more async generators producing TorrentStreamData
+            max_process: Maximum number of streams to process before stopping
+            max_process_time: Maximum time in seconds to spend processing
+            catalog_type: Optional catalog type for filtering (series only)
+            season: Optional season number for filtering (series only)
+            episode: Optional episode number for filtering (series only)
+            
+        Yields:
+            TorrentStreamData: Streams as they become available
+            
+        Raises:
+            MaxProcessLimitReached: If max_process limit is reached
         """
         queue = asyncio.Queue()
         streams_processed = 0
@@ -468,10 +512,25 @@ class BaseScraper(abc.ABC):
         stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
     )
     async def make_request(
-        self, url: str, method: str = "GET", is_expected_to_fail: bool = False, **kwargs
+        self, url: str, method: str = "GET", is_expected_to_fail: bool = False, **kwargs: Any
     ) -> httpx.Response:
         """
         Make an HTTP request with retry logic.
+        
+        Uses exponential backoff retry strategy (3 attempts) for transient failures.
+        Raises ScraperError for non-recoverable errors.
+        
+        Args:
+            url: URL to request
+            method: HTTP method (default: GET)
+            is_expected_to_fail: If True, 404 errors are returned instead of raised
+            **kwargs: Additional arguments passed to httpx request
+            
+        Returns:
+            httpx.Response: Response object
+            
+        Raises:
+            ScraperError: For HTTP errors (unless is_expected_to_fail=True and status=404)
         """
         try:
             response = await self.http_client.request(method, url, **kwargs)
@@ -489,45 +548,72 @@ class BaseScraper(abc.ABC):
     def validate_response(self, response: Dict[str, Any]) -> bool:
         """
         Validate the response from the scraper.
-        :param response: Response dictionary
-        :return: True if valid, False otherwise
+        
+        Override this method in subclasses to implement custom validation logic.
+        
+        Args:
+            response: Response dictionary from scraper
+            
+        Returns:
+            True if valid, False otherwise
         """
         pass
 
     async def parse_response(
         self,
         response: Dict[str, Any],
-        user_data,
+        user_data: UserData,
         metadata: MetadataData,
         catalog_type: str,
-        season: int = None,
-        episode: int = None,
+        season: Optional[int] = None,
+        episode: Optional[int] = None,
     ) -> List[TorrentStreamData]:
         """
         Parse the response into TorrentStreamData objects.
-        :param response: Response dictionary
-        :param user_data: UserData object
-        :param metadata: MetadataData object
-        :param catalog_type: Catalog type (movie, series)
-        :param season: Season number (for series)
-        :param episode: Episode number (for series)
-        :return: List of TorrentStreamData objects
+        
+        Override this method in subclasses to implement parsing logic.
+        
+        Args:
+            response: Response dictionary from scraper
+            user_data: User configuration data
+            metadata: Media metadata
+            catalog_type: Catalog type (movie, series)
+            season: Optional season number (for series)
+            episode: Optional episode number (for series)
+            
+        Returns:
+            List of TorrentStreamData objects
         """
         pass
 
     def get_cache_key(
         self,
-        user_data,
+        user_data: UserData,
         metadata: MetadataData,
         catalog_type: str,
-        season: str = None,
-        episode: str = None,
-        *_args,
-        **_kwargs,
+        season: Optional[str] = None,
+        episode: Optional[str] = None,
+        *_args: Any,
+        **_kwargs: Any,
     ) -> str:
         """
         Generate a cache key for the given arguments.
-        :return: Cache key string
+        
+        Cache keys are used to prevent duplicate scraping of the same content.
+        Format: "{catalog_type}:{metadata.id}" for movies,
+                "{catalog_type}:{metadata.id}:{season}:{episode}" for series.
+        
+        Args:
+            user_data: User configuration (unused but kept for compatibility)
+            metadata: Media metadata
+            catalog_type: Catalog type (movie, series)
+            season: Optional season number as string
+            episode: Optional episode number as string
+            *_args: Additional positional arguments (ignored)
+            **_kwargs: Additional keyword arguments (ignored)
+            
+        Returns:
+            Cache key string
         """
         if catalog_type == "movie":
             return f"{catalog_type}:{metadata.id}"
@@ -535,14 +621,24 @@ class BaseScraper(abc.ABC):
         return f"{catalog_type}:{metadata.id}:{season}:{episode}"
 
     @staticmethod
-    def parse_title_data(title: str) -> dict:
-        """Parse torrent title using PTT"""
+    def parse_title_data(title: str) -> Dict[str, Any]:
+        """
+        Parse torrent title using PTT (Parse Torrent Title) library.
+        
+        Extracts metadata like resolution, codec, quality, year, etc. from torrent title.
+        
+        Args:
+            title: Torrent title string
+            
+        Returns:
+            Dictionary containing parsed title data with 'torrent_name' and parsed fields
+        """
         parsed = PTT.parse_title(title, True)
         return {"torrent_name": title, **parsed}
 
     def validate_title_and_year(
         self,
-        parsed_data: dict,
+        parsed_data: Dict[str, Any],
         metadata: MetadataData,
         catalog_type: str,
         torrent_title: str,
@@ -550,13 +646,19 @@ class BaseScraper(abc.ABC):
     ) -> bool:
         """
         Validate the title and year of the parsed data against the metadata.
-        :param parsed_data: Parsed data dictionary
-        :param metadata: MetadataData object
-        :param catalog_type: Catalog type (movie, series)
-        :param torrent_title: Torrent title
-        :param expected_ratio: Expected similarity ratio
-
-        :return: True if valid, False otherwise
+        
+        Checks title similarity using fuzzy matching and validates year ranges.
+        Records skip reasons in metrics if validation fails.
+        
+        Args:
+            parsed_data: Parsed torrent data dictionary
+            metadata: Expected media metadata
+            catalog_type: Catalog type (movie, series)
+            torrent_title: Original torrent title for logging
+            expected_ratio: Minimum similarity ratio (0-100) for title matching
+            
+        Returns:
+            True if title and year match metadata, False otherwise
         """
         # Check similarity ratios
         max_similarity_ratio = calculate_max_similarity_ratio(
@@ -640,11 +742,26 @@ class BaseScraper(abc.ABC):
     async def get_torrent_data(
         self,
         download_url: str,
-        parsed_data: dict,
-        headers: dict = None,
-        episode_name_parser: str = None,
-    ) -> tuple[dict | None, bool]:
-        """Common method to get torrent data from magnet or URL"""
+        parsed_data: Dict[str, Any],
+        headers: Optional[Dict[str, str]] = None,
+        episode_name_parser: Optional[str] = None,
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """
+        Get torrent data from magnet link or download URL.
+        
+        Handles magnet links directly, or downloads and parses .torrent files.
+        Follows redirects and handles various error conditions.
+        
+        Args:
+            download_url: Magnet link or torrent file URL
+            parsed_data: Previously parsed torrent data
+            headers: Optional HTTP headers for request
+            episode_name_parser: Optional parser name for episode extraction
+            
+        Returns:
+            Tuple of (torrent_data_dict, success_bool)
+            torrent_data_dict contains 'info_hash' and 'announce_list' if successful
+        """
         if download_url.startswith("magnet:"):
             try:
                 magnet = Magnet.from_string(download_url)
@@ -699,10 +816,26 @@ class BaseScraper(abc.ABC):
         metadata: MetadataData,
         catalog_type: str,
         processed_info_hashes: set[str],
-        season: int = None,
-        episode: int = None,
+        season: Optional[int] = None,
+        episode: Optional[int] = None,
     ) -> Optional[TorrentStreamData]:
-        """Common process stream implementation for all indexers"""
+        """
+        Process a single stream result from an indexer.
+        
+        Validates title, year, extracts torrent metadata, and creates TorrentStreamData.
+        Handles both movie and series content with appropriate episode file extraction.
+        
+        Args:
+            stream_data: Raw stream data from indexer
+            metadata: Expected media metadata
+            catalog_type: Catalog type (movie, series)
+            processed_info_hashes: Set of already processed info hashes (for deduplication)
+            season: Optional season number (for series)
+            episode: Optional episode number (for series)
+            
+        Returns:
+            TorrentStreamData if valid, None if skipped or invalid
+        """
         try:
             torrent_title = self.get_title(stream_data)
             if not torrent_title:
