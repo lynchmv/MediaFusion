@@ -143,10 +143,36 @@ async def fetch_stream_or_404(info_hash: str) -> TorrentStreamData:
 
 
 async def get_or_create_video_url(
-    stream, user_data, info_hash, season, episode, filename, user_ip, background_tasks
-):
+    stream: TorrentStreamData,
+    user_data: schemas.UserData,
+    info_hash: str,
+    season: Optional[int],
+    episode: Optional[int],
+    filename: Optional[str],
+    user_ip: Optional[str],
+    background_tasks: BackgroundTasks,
+) -> str:
     """
-    Retrieves or generates the video URL based on stream data and user info.
+    Retrieve or generate video URL from streaming provider.
+    
+    Converts info hash to magnet link, determines file index, and calls
+    provider-specific URL generation function.
+    
+    Args:
+        stream: TorrentStreamData with stream information
+        user_data: User configuration with streaming provider settings
+        info_hash: Torrent info hash
+        season: Optional season number for series
+        episode: Optional episode number for series
+        filename: Optional specific filename to use
+        user_ip: Optional user IP address
+        background_tasks: Background tasks for async operations
+        
+    Returns:
+        Video URL string from streaming provider
+        
+    Raises:
+        ProviderException: If provider-specific error occurs
     """
     # stream is now TorrentStreamData (Pydantic model) with announce_list
     magnet_link = torrent.convert_info_hash_to_magnet(info_hash, stream.announce_list or [])
@@ -183,18 +209,33 @@ async def get_or_create_video_url(
     return await get_video_url(**kwargs)
 
 
-async def cache_stream_url(cached_stream_url_key, video_url):
+async def cache_stream_url(cached_stream_url_key: str, video_url: str) -> None:
     """
-    Caches the streaming URL in Redis for future use.
+    Cache streaming URL in Redis for future use.
+    
+    Stores URL with expiration time to reduce provider API calls.
+    
+    Args:
+        cached_stream_url_key: Redis cache key
+        video_url: Video URL to cache
     """
     await REDIS_ASYNC_CLIENT.set(
         cached_stream_url_key, video_url.encode("utf-8"), ex=URL_CACHE_EXP
     )
 
 
-def apply_mediaflow_proxy_if_needed(video_url, user_data):
+def apply_mediaflow_proxy_if_needed(video_url: str, user_data: schemas.UserData) -> str:
     """
-    Applies mediaflow proxy to the video URL if user config requires it.
+    Apply MediaFlow proxy to video URL if user configuration requires it.
+    
+    Encodes URL with proxy parameters and response headers for streaming.
+    
+    Args:
+        video_url: Original video URL
+        user_data: User configuration with MediaFlow settings
+        
+    Returns:
+        Proxied URL if MediaFlow proxy is enabled, original URL otherwise
     """
     if user_data.mediaflow_config and user_data.mediaflow_config.proxy_debrid_streams:
         response_headers = {
@@ -217,9 +258,18 @@ def apply_mediaflow_proxy_if_needed(video_url, user_data):
     return video_url
 
 
-def handle_provider_exception(error, usage) -> str:
+def handle_provider_exception(error: ProviderException, usage: str) -> str:
     """
-    Handles exceptions raised by the provider and logs them.
+    Handle provider-specific exceptions and log them.
+    
+    Logs error details and returns exception video URL for user display.
+    
+    Args:
+        error: ProviderException with error details
+        usage: Context string describing where error occurred
+        
+    Returns:
+        URL to exception video file
     """
     logging.error(
         "Provider exception occurred for %s: %s",
@@ -230,9 +280,18 @@ def handle_provider_exception(error, usage) -> str:
     return f"{settings.host_url}/static/exceptions/{error.video_file_name}"
 
 
-def handle_generic_exception(exception, info_hash) -> str:
+def handle_generic_exception(exception: Exception, info_hash: str) -> str:
     """
-    Handles generic exceptions and logs them.
+    Handle generic exceptions and log them.
+    
+    Logs full exception traceback and returns generic error video URL.
+    
+    Args:
+        exception: Generic exception that occurred
+        info_hash: Torrent info hash for context
+        
+    Returns:
+        URL to generic API error video file
     """
     logging.error(
         "Generic exception occurred for %s: %s", info_hash, exception, exc_info=True
@@ -240,7 +299,18 @@ def handle_generic_exception(exception, info_hash) -> str:
     return f"{settings.host_url}/static/exceptions/api_error.mp4"
 
 
-async def get_cached_stream_url(cached_stream_url_key):
+async def get_cached_stream_url(cached_stream_url_key: str) -> Optional[str]:
+    """
+    Get cached stream URL from Redis.
+    
+    Retrieves and decodes cached URL if available and not expired.
+    
+    Args:
+        cached_stream_url_key: Redis cache key
+        
+    Returns:
+        Cached stream URL if found, None otherwise
+    """
     if cached_stream_url := await REDIS_ASYNC_CLIENT.getex(
         cached_stream_url_key, ex=URL_CACHE_EXP
     ):
@@ -280,13 +350,34 @@ async def streaming_provider_endpoint(
     request: Request,
     user_data: Annotated[schemas.UserData, Depends(get_user_data)],
     background_tasks: BackgroundTasks,
-    season: int = None,
-    episode: int = None,
-    filename: str = None,
-):
+    season: Optional[int] = None,
+    episode: Optional[int] = None,
+    filename: Optional[str] = None,
+) -> RedirectResponse:
     """
-    Handles streaming provider requests, using caching for performance and
-    locking mechanisms to prevent duplicate tasks.
+    Handle streaming provider playback requests.
+    
+    Main endpoint for streaming provider video playback. Uses caching for performance
+    and Redis locking to prevent duplicate download tasks. Supports both movies and
+    series with optional filename selection.
+    
+    Args:
+        secret_str: User's secret string (encrypted config)
+        info_hash: Torrent info hash
+        response: FastAPI response object
+        request: FastAPI request object
+        user_data: User configuration (injected via dependency)
+        background_tasks: Background tasks for async operations
+        season: Optional season number for series
+        episode: Optional episode number for series
+        filename: Optional specific filename to stream
+        
+    Returns:
+        RedirectResponse to video URL or exception video
+        
+    Raises:
+        HTTPException: 400 if no streaming provider configured
+        HTTPException: 429 if too many concurrent requests
     """
     response.headers.update(const.NO_CACHE_HEADERS)
     info_hash = info_hash.lower()
