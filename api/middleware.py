@@ -374,11 +374,17 @@ class TaskManager(dramatiq.Middleware):
 class TimingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
+        endpoint = request.scope.get("endpoint")
+        endpoint_name = endpoint.__name__ if endpoint else "unknown"
+        method = request.method
+        
         try:
             response = await call_next(request)
+            status_code = response.status_code
         except RuntimeError as exc:
             if str(exc) == "No response returned." and await request.is_disconnected():
                 response = Response(status_code=204)
+                status_code = 204
             else:
                 logging.exception(f"Internal Server Error: {exc}")
                 response = Response(
@@ -386,6 +392,7 @@ class TimingMiddleware(BaseHTTPMiddleware):
                     content="Internal Server Error. Check the server log & Create GitHub Issue",
                     headers=const.NO_CACHE_HEADERS,
                 )
+                status_code = 500
         except Exception as e:
             logging.exception(f"Internal Server Error: {e}")
             response = Response(
@@ -393,6 +400,16 @@ class TimingMiddleware(BaseHTTPMiddleware):
                 status_code=500,
                 headers=const.NO_CACHE_HEADERS,
             )
+            status_code = 500
+        
         process_time = time.time() - start_time
         response.headers["X-Process-Time"] = f"{process_time:.4f} seconds"
+        
+        # Record metrics
+        try:
+            from metrics.business_metrics import record_api_request
+            record_api_request(endpoint_name, method, status_code, process_time)
+        except Exception:
+            pass  # Don't fail request if metrics fail
+        
         return response

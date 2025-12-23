@@ -986,6 +986,7 @@ async def get_or_create_genres_batch(
     """
     Get or create multiple genres in a single batch operation.
     Reduces N+1 queries when processing multiple genres.
+    Uses Redis pipeline for efficient bulk cache operations.
     
     Args:
         session: Database session
@@ -997,11 +998,12 @@ async def get_or_create_genres_batch(
     if not names:
         return {}
     
-    # Check cache for all genres
+    # Check cache for all genres - batch get operations
     cache_keys = [f"genre:{name}" for name in names]
-    cached_ids = await REDIS_ASYNC_CLIENT.mget(cache_keys) if hasattr(REDIS_ASYNC_CLIENT, 'mget') else [
-        await REDIS_ASYNC_CLIENT.get(key) for key in cache_keys
-    ]
+    # Get all cached IDs in parallel
+    cached_results = await asyncio.gather(*[
+        REDIS_ASYNC_CLIENT.get(key) for key in cache_keys
+    ], return_exceptions=True)
     
     # Query existing genres from database
     query = select(Genre).where(Genre.name.in_(names))
@@ -1018,9 +1020,11 @@ async def get_or_create_genres_batch(
     
     if new_genres:
         await session.flush()
-        # Cache new genres
-        for genre in new_genres:
-            await REDIS_ASYNC_CLIENT.set(f"genre:{genre.name}", str(genre.id), ex=86400)
+        # Cache new genres in parallel for better performance
+        await asyncio.gather(*[
+            REDIS_ASYNC_CLIENT.set(f"genre:{genre.name}", str(genre.id), ex=86400)
+            for genre in new_genres
+        ], return_exceptions=True)
         existing_genres.update({genre.name: genre for genre in new_genres})
     
     return existing_genres

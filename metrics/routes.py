@@ -147,6 +147,20 @@ async def debrid_cache_metrics():
     return await get_debrid_cache_metrics()
 
 
+@metrics_router.get("/cache-stats")
+async def cache_statistics():
+    """Get cache statistics including hit/miss ratios."""
+    from metrics.business_metrics import get_cache_statistics
+    return await get_cache_statistics()
+
+
+@metrics_router.get("/scraper-stats")
+async def scraper_statistics():
+    """Get scraper statistics including success rates and last run times."""
+    from metrics.business_metrics import get_scraper_statistics
+    return await get_scraper_statistics()
+
+
 @metrics_router.get("/torrents/uploaders", tags=["metrics"])
 async def get_torrents_by_uploaders(response: Response):
     response.headers.update(const.NO_CACHE_HEADERS)
