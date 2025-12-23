@@ -36,14 +36,29 @@ class RemoteConfigManager:
             return self._load_local_fallback()
 
     def _get_cached_config(self) -> Optional[Dict[str, Any]]:
-        """Retrieve the configuration from Redis cache if available."""
+        """
+        Retrieve the configuration from Redis cache if available.
+        
+        Returns:
+            Cached configuration dictionary if found, None otherwise
+        """
         cached_config = self.redis_client.get(self.CACHE_KEY)
         if cached_config:
             return json.loads(cached_config)
         return None
 
     def _fetch_config(self) -> Dict[str, Any]:
-        """Fetch the configuration from either remote or local source."""
+        """
+        Fetch the configuration from either remote or local source.
+        
+        Uses settings.use_config_source to determine source type.
+        
+        Returns:
+            Configuration dictionary
+            
+        Raises:
+            Exception: If config fetch fails
+        """
         if settings.use_config_source == "local":
             return self._load_local_config(settings.local_config_path)
         if settings.remote_config_source.startswith(("http://", "https://")):
