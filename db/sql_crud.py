@@ -19,6 +19,7 @@ from db.config import settings
 from db.enums import TorrentType
 from db.redis_database import REDIS_ASYNC_CLIENT
 from db.schemas import UserData, Stream, TorrentStreamData
+from utils.exceptions import DatabaseError, ValidationError
 from db.sql_models import (
     BaseMetadata,
     MovieMetadata,
@@ -274,7 +275,30 @@ async def get_catalog_meta_list(
     is_watchlist_catalog: bool = False,
     info_hashes: Optional[List[str]] = None,
 ) -> public_schemas.Metas:
-    """Get metadata list for catalog with efficient filtering and pagination"""
+    """
+    Get metadata list for catalog with efficient filtering and pagination.
+    
+    Uses optimized query builder pattern with eager loading and proper indexing.
+    Applies user content filters (nudity, certification) and supports watchlist catalogs.
+    
+    Args:
+        session: Database session
+        catalog_type: Type of media catalog (movie, series, tv)
+        catalog_id: Catalog identifier
+        user_data: User configuration with filter preferences
+        skip: Number of items to skip (pagination offset)
+        limit: Maximum number of items to return
+        genre: Optional genre filter
+        namespace: Optional namespace filter (for TV catalogs)
+        is_watchlist_catalog: If True, filter by watchlist info hashes
+        info_hashes: Optional list of info hashes for watchlist filtering
+        
+    Returns:
+        Metas: List of metadata items matching the filters
+        
+    Raises:
+        DatabaseError: If database query fails
+    """
     query = (
         CatalogQueryBuilder(catalog_type, user_data, is_watchlist_catalog)
         .add_type_filter()
@@ -307,7 +331,8 @@ async def get_mdblist_meta_list(
     skip: int = 0,
     limit: int = 50,
 ) -> List[public_schemas.Meta]:
-    """Get a list of metadata entries from MDBList
+    """
+    Get a list of metadata entries from MDBList.
     
     This function:
     1. Initializes the MDBList scraper with user's API key
@@ -315,6 +340,23 @@ async def get_mdblist_meta_list(
     3. If using filters, fetches IMDb IDs and filters through PostgreSQL
        with user's parental guide filters applied
     4. Triggers background fetch for missing metadata
+    
+    Args:
+        session: Database session
+        user_data: User configuration with MDBList API key
+        background_tasks: FastAPI background tasks for async operations
+        list_config: MDBList configuration (list ID, filters, etc.)
+        catalog_type: Type of catalog (movie, series)
+        genre: Optional genre filter
+        skip: Number of items to skip (pagination offset)
+        limit: Maximum number of items to return
+        
+    Returns:
+        List of Meta objects from MDBList
+        
+    Raises:
+        DatabaseError: If database query fails
+        ValueError: If MDBList configuration is invalid
     """
     from scrapers.mdblist import initialize_mdblist_scraper
     
@@ -660,8 +702,26 @@ async def get_metadata_by_type(
     media_type: MediaType,
     media_id: str,
     bypass_cache: bool = False,
-) -> data_models.MovieData | data_models.SeriesData | data_models.TVData | None:
-    """Factory function to get metadata based on media type"""
+) -> Optional[data_models.MovieData | data_models.SeriesData | data_models.TVData]:
+    """
+    Factory function to get metadata based on media type.
+    
+    Routes to the appropriate metadata retriever based on media type.
+    Uses caching by default for better performance.
+    
+    Args:
+        session: Database session
+        media_type: Type of media (movie, series, tv)
+        media_id: Media identifier (IMDb ID or MediaFusion ID)
+        bypass_cache: If True, skip cache and fetch fresh from database
+        
+    Returns:
+        MovieData, SeriesData, or TVData depending on media_type, None if not found
+        
+    Raises:
+        ValueError: If media_type is not supported
+        DatabaseError: If database query fails
+    """
     retrievers = {
         MediaType.MOVIE: movie_metadata,
         MediaType.SERIES: series_metadata,
@@ -1372,6 +1432,20 @@ async def update_torrent_seeders(
     info_hash: str,
     seeders: int,
 ) -> bool:
+    """
+    Update seeder count for a torrent stream.
+    
+    Args:
+        session: Database session
+        info_hash: Torrent info hash (ID)
+        seeders: New seeder count
+        
+    Returns:
+        True if update was successful, False if torrent not found
+        
+    Raises:
+        DatabaseError: If database update fails
+    """
     """Update seeders count for a torrent stream"""
     result = await session.exec(
         select(TorrentStream).where(TorrentStream.id == info_hash.lower())
@@ -1389,6 +1463,23 @@ async def store_new_torrent_streams(
     session: AsyncSession,
     streams: List[dict],
 ) -> List[TorrentStream]:
+    """
+    Store new torrent streams in the database using bulk insert.
+    
+    Uses PostgreSQL INSERT ... ON CONFLICT DO UPDATE for efficient upserts.
+    Handles related data (languages, announce URLs, episode files) in batch operations.
+    
+    Args:
+        session: Database session
+        streams: List of stream dictionaries (from TorrentStreamData.model_dump())
+        
+    Returns:
+        List of TorrentStream objects that were stored/updated
+        
+    Raises:
+        DatabaseError: If database insert/update fails
+        ValidationError: If stream data is invalid
+    """
     """Store new torrent streams with their relationships"""
     stored_streams = []
 
