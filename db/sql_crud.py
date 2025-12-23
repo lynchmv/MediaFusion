@@ -2173,7 +2173,8 @@ async def update_metadata(
     
     # Invalidate cache based on media type
     media_type = metadata.type.value if metadata.type else "movie"
-    await REDIS_ASYNC_CLIENT.delete(f"{media_type}_exists:{media_id}")
+    from utils.cache_helpers import invalidate_metadata_cache
+    await invalidate_metadata_cache(media_id, media_type)
     
     return metadata
 
