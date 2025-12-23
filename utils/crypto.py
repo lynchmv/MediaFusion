@@ -348,13 +348,35 @@ def decrypt_text(secret_str: str, secret_key: str | bytes) -> str:
 
 
 def get_text_hash(text: str, full_hash: bool = False) -> str:
+    """
+    Generate SHA-256 hash of text.
+    
+    Args:
+        text: Text to hash
+        full_hash: If True, return full 64-character hash. If False, return first 10 chars.
+        
+    Returns:
+        Hexadecimal hash string (10 or 64 characters)
+    """
     hash_str = hashlib.sha256(text.encode()).hexdigest()
     return hash_str if full_hash else hash_str[:10]
 
 
 def encrypt_data(
-    secret_key: str, data: dict, expiration: int = None, ip: str = None
+    secret_key: str, data: dict, expiration: Optional[int] = None, ip: Optional[str] = None
 ) -> str:
+    """
+    Encrypt dictionary data with optional expiration and IP binding.
+    
+    Args:
+        secret_key: Encryption key string
+        data: Dictionary data to encrypt
+        expiration: Optional expiration time in seconds (added to current time)
+        ip: Optional IP address to bind to encrypted data
+        
+    Returns:
+        Encrypted data as URL-safe base64 string
+    """
     if expiration:
         data["exp"] = int(time.time()) + expiration
     if ip:
