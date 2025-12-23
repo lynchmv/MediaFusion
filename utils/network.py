@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 from ipaddress import ip_address
-from typing import Callable, AsyncGenerator, Any, Tuple, Dict
+from typing import Callable, AsyncGenerator, Any, Tuple, Dict, Optional
 from urllib import parse
 from urllib.parse import urlencode, urlparse
 
