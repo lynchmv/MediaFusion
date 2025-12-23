@@ -825,12 +825,20 @@ async def get_tv_data_by_id(
 async def get_stream_by_info_hash(
     session: AsyncSession, info_hash: str, load_relations: bool = False
 ) -> Optional[TorrentStream]:
-    """Get torrent stream by info hash (ID)
+    """
+    Get torrent stream by info hash (ID).
+    
+    Supports optional eager loading of related data for better performance
+    when relations are needed.
     
     Args:
         session: Database session
-        info_hash: Torrent info hash (ID)
-        load_relations: If True, load languages, announce_urls, episode_files
+        info_hash: Torrent info hash (ID), will be lowercased
+        load_relations: If True, eagerly load languages, announce_urls, episode_files.
+                       If False, returns minimal data for faster queries.
+        
+    Returns:
+        TorrentStream object if found, None otherwise
     """
     if load_relations:
         query = (
@@ -851,7 +859,19 @@ async def get_stream_by_info_hash(
 
 
 async def is_torrent_stream_exists(session: AsyncSession, info_hash: str) -> bool:
-    """Check if a torrent stream exists - optimized query"""
+    """
+    Check if a torrent stream exists using optimized EXISTS query.
+    
+    Uses PostgreSQL EXISTS() subquery for fastest possible existence check.
+    More efficient than fetching the full record.
+    
+    Args:
+        session: Database session
+        info_hash: Torrent info hash (lowercase)
+        
+    Returns:
+        True if torrent stream exists, False otherwise
+    """
     # Use exists() subquery for fastest possible check
     query = select(sa_exists().where(TorrentStream.id == info_hash.lower()))
     result = await session.exec(query)
@@ -865,7 +885,22 @@ async def get_cached_torrent_streams(
     episode: Optional[int] = None,
     cache_key: Optional[str] = None,
 ) -> List[TorrentStream]:
-    """Get torrent streams for a video with optional season/episode filtering and Redis caching"""
+    """
+    Get torrent streams for a video with optional season/episode filtering and Redis caching.
+    
+    Uses Redis cache to store stream IDs for faster subsequent lookups.
+    Cache TTL is 30 minutes (1800 seconds).
+    
+    Args:
+        session: Database session
+        video_id: Video metadata ID
+        season: Optional season number for series
+        episode: Optional episode number for series
+        cache_key: Optional pre-generated cache key (for optimization)
+        
+    Returns:
+        List of TorrentStream objects with eagerly loaded relations
+    """
     # Generate cache key if not provided
     if cache_key is None:
         cache_key_parts = ["torrent_streams", video_id]

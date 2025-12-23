@@ -24,10 +24,15 @@ _shared_proxy_client: Optional[httpx.AsyncClient] = None
 def get_shared_client() -> httpx.AsyncClient:
     """
     Get or create the shared async HTTP client.
+    
     This client should be reused across the application for better performance.
+    It includes connection pooling, keepalive, and proper timeout configuration.
     
     Returns:
-        httpx.AsyncClient: Shared HTTP client instance
+        httpx.AsyncClient: Shared HTTP client instance with:
+            - Connection pooling (max 100 connections, 20 keepalive)
+            - 30 second timeout, 10 second connect timeout
+            - Follow redirects enabled
     """
     global _shared_client
     

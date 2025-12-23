@@ -2,7 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from io import BytesIO
-from typing import Literal, Annotated, Optional, Callable
+from typing import Literal, Annotated, Optional, Callable, Dict
 from starlette.responses import Response as StarletteResponse
 
 import aiohttp
