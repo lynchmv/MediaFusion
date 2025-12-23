@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from typing import Optional
 from urllib.parse import urlparse, urljoin
 
 import httpx
@@ -37,22 +38,44 @@ def is_valid_url(url: str) -> bool:
 
 
 async def does_url_exist(url: str) -> bool:
-    async with httpx.AsyncClient(proxy=settings.requests_proxy_url) as client:
-        try:
-            response = await client.head(
-                url, timeout=10, headers=const.UA_HEADER, follow_redirects=True
-            )
-            response.raise_for_status()
-            return response.status_code == 200
-        except httpx.HTTPStatusError as err:
-            logging.error("URL: %s, Status: %s", url, err.response.status_code)
-            return False
-        except (httpx.RequestError, httpx.TimeoutException) as err:
+    """
+    Check if a URL exists and is accessible.
+    
+    Uses HEAD request to avoid downloading content. Follows redirects.
+    
+    Args:
+        url: URL to check
+        
+    Returns:
+        True if URL exists and returns 200, False otherwise
+    """
+    from utils.http_client import get_shared_proxy_client
+    
+    client = get_shared_proxy_client()
+    try:
+        response = await client.head(
+            url, timeout=10, headers=const.UA_HEADER, follow_redirects=True
+        )
+        response.raise_for_status()
+        return response.status_code == 200
+    except httpx.HTTPStatusError as err:
+        logging.error("URL: %s, Status: %s", url, err.response.status_code)
+        return False
+    except (httpx.RequestError, httpx.TimeoutException) as err:
             logging.error("URL: %s, Status: %s", url, err)
             return False
 
 
 async def validate_image_url(url: str) -> bool:
+    """
+    Validate that a URL is a valid image URL and exists.
+    
+    Args:
+        url: URL to validate
+        
+    Returns:
+        True if URL is valid and exists, False otherwise
+    """
     return is_valid_url(url) and await does_url_exist(url)
 
 
@@ -299,8 +322,20 @@ def validate_parent_guide_nudity(metadata, user_data: schemas.UserData) -> bool:
 
 async def validate_service(
     url: str,
-    params: dict = None,
-    success_message: str = None,
+    params: Optional[dict] = None,
+    success_message: Optional[str] = None,
+) -> dict:
+    """
+    Validate a service endpoint by making a test request.
+    
+    Args:
+        url: Service URL to validate
+        params: Optional query parameters
+        success_message: Optional success message to return
+        
+    Returns:
+        Dictionary with 'status' ('success' or 'error') and optional 'message'
+    """
     invalid_creds_message: str = None,
 ) -> dict:
     async with httpx.AsyncClient() as client:
@@ -333,6 +368,15 @@ async def validate_service(
 
 
 async def validate_mediaflow_proxy_credentials(user_data: schemas.UserData) -> dict:
+    """
+    Validate MediaFlow proxy credentials by testing the proxy endpoint.
+    
+    Args:
+        user_data: User configuration containing MediaFlow proxy settings
+        
+    Returns:
+        Dictionary with 'status' ('success' or 'error') and optional 'message'
+    """
     if not user_data.mediaflow_config:
         return {"status": "success", "message": "Mediaflow Proxy is not set."}
 
@@ -359,6 +403,15 @@ async def validate_mediaflow_proxy_credentials(user_data: schemas.UserData) -> d
 
 
 async def validate_rpdb_token(user_data: schemas.UserData) -> dict:
+    """
+    Validate RPDB (Real-Debrid) API token by making a test request.
+    
+    Args:
+        user_data: User configuration containing RPDB token
+        
+    Returns:
+        Dictionary with 'status' ('success' or 'error') and optional 'message'
+    """
     if not user_data.rpdb_config:
         return {"status": "success", "message": "RPDB is not enabled."}
 
@@ -372,6 +425,15 @@ async def validate_rpdb_token(user_data: schemas.UserData) -> dict:
 
 
 async def validate_mdblist_token(user_data: schemas.UserData) -> dict:
+    """
+    Validate MDBList API token by making a test request.
+    
+    Args:
+        user_data: User configuration containing MDBList API key
+        
+    Returns:
+        Dictionary with 'status' ('success' or 'error') and optional 'message'
+    """
     if not user_data.mdblist_config:
         return {"status": "success", "message": "MDBList is not enabled."}
 
