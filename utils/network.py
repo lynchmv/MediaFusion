@@ -15,7 +15,6 @@ from db.schemas import UserData
 from utils import crypto
 from utils.crypto import encrypt_data
 from utils import runtime_const
-from db.redis_database import REDIS_ASYNC_CLIENT
 
 
 class CircuitBreakerOpenException(Exception):

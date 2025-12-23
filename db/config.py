@@ -133,7 +133,7 @@ class Settings(BaseSettings):
     local_config_path: str = "resources/json/scraper_config.json"
 
     # Feature Toggles
-    enable_rate_limit: bool = False
+    enable_rate_limit: bool = True
     validate_m3u8_urls_liveness: bool = True
     store_stremthru_magnet_cache: bool = False
     is_scrap_from_yts: bool = True
