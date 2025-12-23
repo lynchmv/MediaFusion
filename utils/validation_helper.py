@@ -379,8 +379,8 @@ async def validate_service(
     from utils.http_client import get_shared_client
     
     client = get_shared_client()
-        try:
-            response = await client.get(url, params=params, timeout=10)
+    try:
+        response = await client.get(url, params=params, timeout=10)
             response.raise_for_status()
             return {
                 "status": "success",
