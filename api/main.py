@@ -19,7 +19,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from sqlmodel.ext.asyncio.session import AsyncSession
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, JSONResponse
 
 from api import middleware
 from api.scheduler import setup_scheduler
@@ -56,6 +56,13 @@ from utils.validation_helper import (
     validate_mediaflow_proxy_credentials,
     validate_rpdb_token,
     validate_mdblist_token,
+)
+from utils.exceptions import (
+    MediaFusionException,
+    NotFoundError,
+    DatabaseError,
+    ValidationError,
+    AuthenticationError,
 )
 
 logging.basicConfig(
@@ -100,6 +107,26 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Global exception handler for custom exceptions
+@app.exception_handler(MediaFusionException)
+async def mediafusion_exception_handler(request: Request, exc: MediaFusionException):
+    """Handle MediaFusion custom exceptions."""
+    status_code = 400  # Default status code
+    if isinstance(exc, NotFoundError):
+        status_code = 404
+    elif isinstance(exc, AuthenticationError):
+        status_code = 401
+    elif isinstance(exc, ValidationError):
+        status_code = 422
+    
+    from starlette.responses import JSONResponse
+    return JSONResponse(
+        status_code=status_code,
+        content=exc.to_dict(),
+        headers=const.NO_CACHE_HEADERS,
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -273,7 +300,8 @@ async def get_manifest(
         genres_list = await asyncio.gather(*genre_tasks)
     except Exception as e:
         logging.exception("Error gathering genres: %s", e)
-        genres_list = [[] for _ in catalog_types]  # Provide default empty list
+        # Provide default empty list to allow manifest generation to continue
+        genres_list = [[] for _ in catalog_types]
     genres = dict(zip(catalog_types, genres_list))
 
     return await generate_manifest(user_data, genres)
@@ -396,8 +424,11 @@ async def get_catalog(
             try:
                 metas = public_schemas.Metas.model_validate_json(cached_data)
                 return await update_rpdb_posters(metas, user_data, catalog_type)
-            except ValidationError:
-                pass
+            except ValidationError as e:
+                logging.warning(
+                    f"Invalid cached data for catalog {catalog_id}, clearing cache: {e}"
+                )
+                await REDIS_ASYNC_CLIENT.delete(cache_key)
     else:
         response.headers.update(const.NO_CACHE_HEADERS)
 
@@ -551,11 +582,14 @@ async def search_meta(
     # Try to get from cache
     cached_data = await REDIS_ASYNC_CLIENT.get(cache_key)
     if cached_data:
-        try:
-            metas = public_schemas.Metas.model_validate_json(cached_data)
-            return await update_rpdb_posters(metas, user_data, catalog_type)
-        except ValidationError:
-            pass
+            try:
+                metas = public_schemas.Metas.model_validate_json(cached_data)
+                return await update_rpdb_posters(metas, user_data, catalog_type)
+            except ValidationError as e:
+                logging.warning(
+                    f"Invalid cached search data for query '{search_query}', clearing cache: {e}"
+                )
+                await REDIS_ASYNC_CLIENT.delete(cache_key)
 
     # Perform search
     metas = await sql_crud.search_metadata(
@@ -596,9 +630,23 @@ async def get_meta(
     meta_id: str,
     session: AsyncSession = Depends(get_read_session),
 ) -> schemas.MetaItem:
-    metadata = await sql_crud.get_metadata_by_type(session, catalog_type, meta_id)
-    if not metadata:
-        raise HTTPException(status_code=404, detail="Metadata not found")
+    try:
+        metadata = await sql_crud.get_metadata_by_type(session, catalog_type, meta_id)
+        if not metadata:
+            raise NotFoundError(
+                message=f"Metadata not found for {catalog_type.value} with ID {meta_id}",
+                error_code="METADATA_NOT_FOUND",
+                details={"catalog_type": catalog_type.value, "meta_id": meta_id},
+            )
+    except MediaFusionException:
+        raise
+    except Exception as e:
+        raise DatabaseError(
+            message=f"Failed to retrieve metadata: {str(e)}",
+            error_code="DATABASE_ERROR",
+            details={"catalog_type": catalog_type.value, "meta_id": meta_id},
+            original_exception=e,
+        )
 
     if catalog_type == MediaType.SERIES:
         # For series, parse episodes and seasons
@@ -718,7 +766,11 @@ async def get_streams(
                     )
                 ]
             else:
-                raise HTTPException(status_code=404, detail="Meta ID not found.")
+                raise NotFoundError(
+                    message=f"Meta ID not found: {video_id}",
+                    error_code="META_ID_NOT_FOUND",
+                    details={"video_id": video_id, "catalog_type": catalog_type},
+                )
         else:
             fetched_streams = await sql_crud.get_movie_streams(
                 session, video_id, user_data, secret_str, user_ip, background_tasks
@@ -853,9 +905,10 @@ def raise_poster_error(meta_id: str, error_message: str):
         return RedirectResponse(
             f"https://live.metahub.space/poster/small/{meta_id}/img", status_code=302
         )
-    raise HTTPException(
-        status_code=404,
-        detail=f"Failed to create poster for {meta_id}: {error_message}",
+    raise NotFoundError(
+        message=f"Failed to create poster for {meta_id}: {error_message}",
+        error_code="POSTER_GENERATION_FAILED",
+        details={"meta_id": meta_id, "error_message": error_message},
     )
 
 
@@ -972,9 +1025,18 @@ async def download_info(
         not user_data.streaming_provider
         or not user_data.streaming_provider.download_via_browser
     ):
-        raise HTTPException(
-            status_code=403,
-            detail="Download option is not enabled or no streaming provider configured",
+        from utils.exceptions import AuthorizationError
+        raise AuthorizationError(
+            message="Download option is not enabled or no streaming provider configured",
+            error_code="DOWNLOAD_NOT_ENABLED",
+            details={
+                "has_streaming_provider": bool(user_data.streaming_provider),
+                "download_via_browser": (
+                    user_data.streaming_provider.download_via_browser
+                    if user_data.streaming_provider
+                    else False
+                ),
+            },
         )
 
     # Get metadata from PostgreSQL
@@ -984,7 +1046,11 @@ async def download_info(
         metadata = await sql_crud.get_series_data_by_id(session, video_id)
     
     if not metadata:
-        raise HTTPException(status_code=404, detail="Metadata not found")
+        raise NotFoundError(
+            message=f"Metadata not found for {catalog_type} with ID {video_id}",
+            error_code="METADATA_NOT_FOUND",
+            details={"catalog_type": catalog_type, "video_id": video_id},
+        )
 
     user_ip = await get_user_public_ip(request, user_data)
 
