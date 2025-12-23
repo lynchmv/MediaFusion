@@ -4,7 +4,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
 from os.path import basename
 import re
-from typing import Awaitable, Iterable, AsyncIterator, Optional, TypeVar, OrderedDict
+from typing import Awaitable, Iterable, AsyncIterator, Optional, TypeVar, OrderedDict, Dict, List, Tuple, Any
 from urllib.parse import quote
 
 import PTT
@@ -31,8 +31,38 @@ logging.getLogger("demagnetize").setLevel(logging.CRITICAL)
 
 
 def extract_torrent_metadata(
-    content: bytes, parsed_data: dict = None, is_raise_error: bool = False, episode_name_parser: str = None
-) -> dict:
+    content: bytes,
+    parsed_data: Optional[Dict[str, Any]] = None,
+    is_raise_error: bool = False,
+    episode_name_parser: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Extract metadata from torrent file content.
+    
+    Parses bencoded torrent data to extract info hash, file list, announce URLs,
+    and episode information. Handles both single-file and multi-file torrents.
+    
+    Args:
+        content: Raw torrent file bytes (bencoded data)
+        parsed_data: Optional pre-parsed title data to merge with torrent metadata
+        is_raise_error: If True, raise exceptions on errors instead of returning empty dict
+        episode_name_parser: Optional regex pattern for extracting episode names from filenames
+        
+    Returns:
+        Dictionary containing torrent metadata including:
+        - info_hash: SHA-1 hash of torrent info
+        - announce_list: List of tracker URLs
+        - total_size: Total size in bytes
+        - torrent_name: Name of the torrent
+        - torrent_file: Original torrent file bytes
+        - file_data: List of file information
+        - seasons: List of season numbers
+        - episodes: List of episode numbers
+        Empty dict on error if is_raise_error is False
+        
+    Raises:
+        ValueError: If torrent is invalid or contains 18+ content (when is_raise_error=True)
+    """
     try:
         torrent_data: OrderedDict = bencodepy.decode(content)
         info = torrent_data[b"info"]
@@ -200,9 +230,20 @@ def extract_torrent_metadata(
         return {}
 
 
-def convert_info_hash_to_magnet(info_hash: str, trackers: list[str]) -> str:
+def convert_info_hash_to_magnet(info_hash: str, trackers: Optional[List[str]] = None) -> str:
+    """
+    Convert info hash to magnet link with trackers.
+    
+    Args:
+        info_hash: Torrent info hash (SHA-1)
+        trackers: Optional list of tracker URLs. Uses default TRACKERS if None or empty.
+        
+    Returns:
+        Magnet link string with info hash and tracker URLs
+    """
     magnet_link = f"magnet:?xt=urn:btih:{info_hash}"
-    for tracker in set(trackers) or TRACKERS:
+    tracker_list = trackers if trackers else TRACKERS
+    for tracker in set(tracker_list):
         encoded_tracker = quote(tracker, safe="")
         magnet_link += f"&tr={encoded_tracker}"
     return magnet_link
@@ -246,8 +287,30 @@ async def _acollect_pipe(
 
 
 async def info_hashes_to_torrent_metadata(
-    info_hashes: list[str], trackers: list[str], episode_name_parser: str = None, is_raise_error: bool = False
-) -> list[dict]:
+    info_hashes: List[str],
+    trackers: Optional[List[str]] = None,
+    episode_name_parser: Optional[str] = None,
+    is_raise_error: bool = False,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch torrent metadata from P2P network for multiple info hashes.
+    
+    Uses demagnetizer to fetch torrent files from trackers and extract metadata.
+    Processes multiple torrents concurrently with rate limiting.
+    
+    Args:
+        info_hashes: List of torrent info hashes to fetch
+        trackers: Optional list of tracker URLs. Uses default TRACKERS if None.
+        episode_name_parser: Optional regex pattern for extracting episode names
+        is_raise_error: If True, raise exceptions on errors instead of logging
+        
+    Returns:
+        List of torrent metadata dictionaries (same format as extract_torrent_metadata)
+        Empty list if P2P fetching is disabled
+        
+    Raises:
+        ValueError: If P2P fetching is disabled and is_raise_error is True
+    """
     torrents_data = []
 
     if not settings.enable_fetching_torrent_metadata_from_p2p:
@@ -281,33 +344,47 @@ async def info_hashes_to_torrent_metadata(
     return torrents_data
 
 
-async def init_best_trackers():
-    # get the best trackers from https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt
-
+async def init_best_trackers() -> None:
+    """
+    Initialize best trackers list from GitHub repository.
+    
+    Fetches tracker list from ngosang/trackerslist and adds to runtime constants.
+    Deduplicates trackers and updates the global TRACKERS list.
+    """
     try:
         from utils.http_client import get_shared_proxy_client
+        
         client = get_shared_proxy_client()
         response = await client.get(
             "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt",
             timeout=30,
-            )
-            if response.status_code == 200:
-                trackers = [tracker for tracker in response.text.split("\n") if tracker]
-                utils.runtime_const.TRACKERS.extend(trackers)
-                utils.runtime_const.TRACKERS = list(set(utils.runtime_const.TRACKERS))
+        )
+        if response.status_code == 200:
+            trackers = [tracker for tracker in response.text.split("\n") if tracker]
+            utils.runtime_const.TRACKERS.extend(trackers)
+            utils.runtime_const.TRACKERS = list(set(utils.runtime_const.TRACKERS))
 
-                logging.info(
-                    f"Loaded {len(trackers)} trackers. Total: {len(utils.runtime_const.TRACKERS)}"
-                )
-            else:
-                logging.error(f"Failed to load trackers: {response.status_code}")
+            logging.info(
+                f"Loaded {len(trackers)} trackers. Total: {len(utils.runtime_const.TRACKERS)}"
+            )
+        else:
+            logging.error(f"Failed to load trackers: {response.status_code}")
     except (httpx.ConnectTimeout, Exception) as e:
         logging.error(f"Failed to load trackers: {e}")
 
 
-def parse_magnet(magnet_link: str) -> tuple[str, list[str]]:
+def parse_magnet(magnet_link: str) -> Tuple[str, List[str]]:
     """
-    Parse magnet link and return info hash and trackers
+    Parse magnet link and return info hash and trackers.
+    
+    Args:
+        magnet_link: Magnet link string (e.g., "magnet:?xt=urn:btih:...")
+        
+    Returns:
+        Tuple of (info_hash, trackers) where:
+        - info_hash: Lowercase SHA-1 info hash
+        - trackers: List of tracker URLs
+        Returns ("", []) if parsing fails
     """
     try:
         magnet = Magnet.from_string(magnet_link)
@@ -317,5 +394,14 @@ def parse_magnet(magnet_link: str) -> tuple[str, list[str]]:
 
 
 def get_info_hash_from_magnet(magnet_link: str) -> str:
+    """
+    Extract info hash from magnet link.
+    
+    Args:
+        magnet_link: Magnet link string
+        
+    Returns:
+        Info hash string (lowercase), empty string if parsing fails
+    """
     info_hash, _ = parse_magnet(magnet_link)
     return info_hash
