@@ -1415,7 +1415,22 @@ async def save_movie_metadata(
     session: AsyncSession,
     metadata: dict,
 ) -> MovieMetadata:
-    """Save or update movie metadata"""
+    """
+    Save or update movie metadata in the database.
+    
+    Creates or updates base metadata, movie-specific fields, and related entities
+    (stars, parental certificates, genres, catalogs, aka titles).
+    
+    Args:
+        session: Database session
+        metadata: Dictionary containing movie metadata fields
+        
+    Returns:
+        MovieMetadata: Saved or updated MovieMetadata object
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
     # First save base metadata
     base = await save_base_metadata(session, metadata, MediaType.MOVIE)
 
@@ -1579,7 +1594,6 @@ async def store_new_torrent_streams(
         DatabaseError: If database insert/update fails
         ValidationError: If stream data is invalid
     """
-    """Store new torrent streams with their relationships"""
     stored_streams = []
 
     for stream_data in streams:
@@ -3243,8 +3257,22 @@ async def get_event_data_by_id(meta_id: str):
     return MediaFusionEventsMetaData.model_validate_json(events_json)
 
 
-async def get_event_streams(meta_id: str, user_data) -> List:
-    """Get event streams from Redis"""
+async def get_event_streams(meta_id: str, user_data: UserData) -> List[Stream]:
+    """
+    Get event streams from Redis cache.
+    
+    Events are stored as JSON in Redis and parsed into stream objects.
+    
+    Args:
+        meta_id: Event metadata identifier
+        user_data: User configuration data
+        
+    Returns:
+        List of Stream objects for the event
+        
+    Raises:
+        ValueError: If event data is invalid or not found
+    """
     from db.schemas import MediaFusionEventsMetaData
     from utils.parser import parse_tv_stream_data
     
