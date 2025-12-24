@@ -2717,34 +2717,67 @@ async def update_rss_feed(
     feed_id: int,
     updates: dict,
 ) -> Optional[RSSFeed]:
-    """Update an RSS feed"""
-    feed = await get_rss_feed(session, feed_id)
-    if not feed:
-        return None
-
-    for key, value in updates.items():
-        if key == "catalog_patterns":
-            # Clear existing patterns and add new ones
-            await session.exec(
-                sa_delete(RSSFeedCatalogPattern).where(
-                    RSSFeedCatalogPattern.rss_feed_id == feed_id
-                )
+    """
+    Update an RSS feed.
+    
+    Optimized to use a single query with update statement for non-pattern fields,
+    avoiding the need to fetch the full feed object first.
+    
+    Args:
+        session: Database session
+        feed_id: RSS feed ID to update
+        updates: Dictionary of fields to update
+        
+    Returns:
+        Updated RSSFeed object with catalog_patterns loaded, None if not found
+    """
+    # Handle catalog_patterns separately as it requires relationship updates
+    catalog_patterns = updates.pop("catalog_patterns", None)
+    
+    # Update non-pattern fields in a single query if any exist
+    if updates:
+        update_values = {**updates, "updated_at": datetime.now(pytz.UTC)}
+        await session.exec(
+            sa_update(RSSFeed)
+            .where(RSSFeed.id == feed_id)
+            .values(**update_values)
+        )
+        await session.flush()
+    
+    # Handle catalog_patterns if provided
+    if catalog_patterns is not None:
+        # Clear existing patterns and add new ones
+        await session.exec(
+            sa_delete(RSSFeedCatalogPattern).where(
+                RSSFeedCatalogPattern.rss_feed_id == feed_id
             )
-            for pattern_data in value:
-                pattern = RSSFeedCatalogPattern(
-                    rss_feed_id=feed_id,
-                    name=pattern_data.get("name"),
-                    regex=pattern_data["regex"],
-                    enabled=pattern_data.get("enabled", True),
-                    case_sensitive=pattern_data.get("case_sensitive", False),
-                    target_catalogs=pattern_data.get("target_catalogs", []),
-                )
-                session.add(pattern)
-        elif hasattr(feed, key):
-            setattr(feed, key, value)
-
-    feed.updated_at = datetime.now(pytz.UTC)
-    await session.commit()
+        )
+        for pattern_data in catalog_patterns:
+            pattern = RSSFeedCatalogPattern(
+                rss_feed_id=feed_id,
+                name=pattern_data.get("name"),
+                regex=pattern_data["regex"],
+                enabled=pattern_data.get("enabled", True),
+                case_sensitive=pattern_data.get("case_sensitive", False),
+                target_catalogs=pattern_data.get("target_catalogs", []),
+            )
+            session.add(pattern)
+        await session.flush()
+    
+    # Fetch updated feed with relationships loaded
+    query = (
+        select(RSSFeed)
+        .where(RSSFeed.id == feed_id)
+        .options(selectinload(RSSFeed.catalog_patterns))
+    )
+    result = await session.exec(query)
+    feed = result.one_or_none()
+    
+    if feed:
+        await session.commit()
+    else:
+        await session.rollback()
+    
     return feed
 
 
@@ -2818,35 +2851,51 @@ async def get_or_create_metadata(
     title = metadata.get("title", "")
     year = metadata.get("year")
     
+    # Optimize: Use exists() subquery for faster existence check, then fetch ID if found
     # Search by exact title match first
-    query = (
-        select(BaseMetadata.id)
-        .where(
+    title_match_exists = (
+        select(sa_exists().where(
             BaseMetadata.type == media_type_enum,
             func.lower(BaseMetadata.title) == func.lower(title),
+            BaseMetadata.year == year if year else True,
+        ))
+    )
+    result = await session.exec(title_match_exists)
+    if result.one():
+        # Fetch the ID only if match exists
+        query = (
+            select(BaseMetadata.id)
+            .where(
+                BaseMetadata.type == media_type_enum,
+                func.lower(BaseMetadata.title) == func.lower(title),
+            )
         )
+        if year:
+            query = query.where(BaseMetadata.year == year)
+        result = await session.exec(query)
+        existing_id = result.first()
+        if existing_id:
+            metadata["id"] = existing_id
+            return metadata
+    
+    # Search by AKA titles using exists() for optimization
+    aka_exists = (
+        select(sa_exists().where(
+            func.lower(AkaTitle.title) == func.lower(title)
+        ))
     )
-    if year:
-        query = query.where(BaseMetadata.year == year)
-    
-    result = await session.exec(query)
-    existing_id = result.first()
-    
-    if existing_id:
-        metadata["id"] = existing_id
-        return metadata
-    
-    # Search by AKA titles
-    aka_query = (
-        select(AkaTitle.media_id)
-        .where(func.lower(AkaTitle.title) == func.lower(title))
-    )
-    result = await session.exec(aka_query)
-    aka_match = result.first()
-    
-    if aka_match:
-        metadata["id"] = aka_match
-        return metadata
+    result = await session.exec(aka_exists)
+    if result.one():
+        # Fetch the media_id only if match exists
+        aka_query = (
+            select(AkaTitle.media_id)
+            .where(func.lower(AkaTitle.title) == func.lower(title))
+        )
+        result = await session.exec(aka_query)
+        aka_match = result.first()
+        if aka_match:
+            metadata["id"] = aka_match
+            return metadata
     
     # No existing metadata found - fetch from IMDb/TMDB if requested
     imdb_data = {}
@@ -2866,11 +2915,11 @@ async def get_or_create_metadata(
         imdb_data.get("imdb_id") or metadata.get("id") or f"mf{uuid4().fields[-1]}"
     )
     
-    # Check if this ID already exists
-    existing = await session.exec(
-        select(BaseMetadata.id).where(BaseMetadata.id == metadata["id"])
+    # Check if this ID already exists using exists() for faster check
+    id_exists = await session.exec(
+        select(sa_exists().where(BaseMetadata.id == metadata["id"]))
     )
-    if existing.first():
+    if id_exists.one():
         return metadata
     
     # Create new metadata
