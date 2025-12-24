@@ -2851,51 +2851,37 @@ async def get_or_create_metadata(
     title = metadata.get("title", "")
     year = metadata.get("year")
     
-    # Optimize: Use exists() subquery for faster existence check, then fetch ID if found
     # Search by exact title match first
-    title_match_exists = (
-        select(sa_exists().where(
+    # Note: Using direct query is more efficient than exists() + fetch for this case
+    # since we need the ID anyway, and the query is simple
+    query = (
+        select(BaseMetadata.id)
+        .where(
             BaseMetadata.type == media_type_enum,
             func.lower(BaseMetadata.title) == func.lower(title),
-            BaseMetadata.year == year if year else True,
-        ))
-    )
-    result = await session.exec(title_match_exists)
-    if result.one():
-        # Fetch the ID only if match exists
-        query = (
-            select(BaseMetadata.id)
-            .where(
-                BaseMetadata.type == media_type_enum,
-                func.lower(BaseMetadata.title) == func.lower(title),
-            )
         )
-        if year:
-            query = query.where(BaseMetadata.year == year)
-        result = await session.exec(query)
-        existing_id = result.first()
-        if existing_id:
-            metadata["id"] = existing_id
-            return metadata
+    )
+    if year:
+        query = query.where(BaseMetadata.year == year)
     
-    # Search by AKA titles using exists() for optimization
-    aka_exists = (
-        select(sa_exists().where(
-            func.lower(AkaTitle.title) == func.lower(title)
-        ))
+    result = await session.exec(query)
+    existing_id = result.first()
+    
+    if existing_id:
+        metadata["id"] = existing_id
+        return metadata
+    
+    # Search by AKA titles
+    aka_query = (
+        select(AkaTitle.media_id)
+        .where(func.lower(AkaTitle.title) == func.lower(title))
     )
-    result = await session.exec(aka_exists)
-    if result.one():
-        # Fetch the media_id only if match exists
-        aka_query = (
-            select(AkaTitle.media_id)
-            .where(func.lower(AkaTitle.title) == func.lower(title))
-        )
-        result = await session.exec(aka_query)
-        aka_match = result.first()
-        if aka_match:
-            metadata["id"] = aka_match
-            return metadata
+    result = await session.exec(aka_query)
+    aka_match = result.first()
+    
+    if aka_match:
+        metadata["id"] = aka_match
+        return metadata
     
     # No existing metadata found - fetch from IMDb/TMDB if requested
     imdb_data = {}
